@@ -1,6 +1,6 @@
 <input-method xmlns:android="http://schemas.android.com/apk/res/android">
     <subtype
-        android:label="English"
-        android:imeSubtypeLocale="en_US"
+        android:label="Español (Chile)"
+        android:imeSubtypeLocale="es_CL"
         android:imeSubtypeMode="keyboard" />
 </input-method>
