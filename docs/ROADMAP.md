@@ -18,9 +18,9 @@
 - [x] Add one-step clear-all behavior.
 - [ ] Validate cursor preservation on target apps and devices.
 - [ ] Select supported devices and Android versions.
-- [x] Document voice recognition and wake-word architecture.
-- [ ] Select speech provider and audio privacy model.
-- [ ] Implement tap-to-talk voice entry.
+- [x] Choose free, on-device speech recognition for the first version.
+- [ ] Implement tap-to-talk with Spanish language support checks.
+- [ ] Evaluate local Whisper fallback on the target TV if needed.
 
 ## Later
 

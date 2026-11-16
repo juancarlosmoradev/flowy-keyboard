@@ -2,7 +2,7 @@
 
 ## Status
 
-Architecture proposed. No speech provider or audio backend is selected.
+Free, on-device recognition is the plan for the first version. No cloud transcription or paid API will be used.
 
 ## Product requirements
 
@@ -13,27 +13,27 @@ Architecture proposed. No speech provider or audio backend is selected.
 - A separate voice-agent flow may submit a search after an explicit spoken command.
 - Ordinary dictation must not submit the search automatically.
 - No audio is captured while the user has not started a session.
+- Voice recognition must not silently fall back to cloud processing.
 
-## Recognition options
+## First implementation
 
-| Option | Advantages | Limits |
-| --- | --- | --- |
-| Android speech service | Adapts to the device and can provide on-device recognition where installed. Android exposes availability checks and supported-language information. | Service, model, network behavior, and Spanish quality vary by TV manufacturer and OS. The standard API may stream audio to remote servers. |
-| AI transcription backend | Selects a known model and gives Flowy control over the recognition pipeline and Spanish quality evaluation. | Requires a backend and may send audio off-device. Usage may incur API costs. The Android app must not contain the provider's secret API key. |
+Use Android's on-device SpeechRecognizer when the device reports that it is available and supports the installed Spanish language model. The app will explicitly use the on-device recognizer and check language support; it will not use the general recognizer as a fallback because that service may send audio to a remote server.
 
-## Recommended design
+If the Android TV does not provide on-device recognition for Spanish, evaluate whisper.cpp as an optional local model. It supports Android and multilingual transcription. Model size, download, recognition accuracy, latency, and memory usage must be measured on the target TV before selection.
 
-Use a provider interface so the UI and text insertion do not depend on one recognizer:
+The app will not include a cloud provider or backend in this version. Downloading a local model may use network data once; recognition itself runs on the TV.
+
+## Tap-to-talk flow
 
 1. The user focuses the microphone key and presses OK.
 2. Flowy explains and requests microphone permission if needed.
-3. The speech controller checks recognition support for es-CL.
-4. It uses a locally available recognizer only if Spanish is installed and it meets the quality bar.
-5. Otherwise, it can use a user-approved AI transcription backend.
-6. Flowy shows the transcript for correction or confirmation, then commits it through the active InputConnection.
-7. A separate explicit voice-agent command can submit the search after text is committed.
+3. The speech controller checks local recognition support for Spanish (Chile).
+4. If available, Flowy starts a visible listening session.
+5. The user can cancel; otherwise Flowy displays the transcript.
+6. Flowy commits the confirmed transcript through the active InputConnection.
+7. A separate explicit voice-agent command can submit a search after text is committed.
 
-No audio should be stored by default. If the remote provider requires an upload, Flowy must disclose that before recording. The service must authenticate to any AI provider on the server side; never embed a provider key in the APK.
+No audio should be stored by default. If no local Spanish recognizer is available, Flowy reports that voice input is unavailable on that device instead of sending audio elsewhere.
 
 ## Always-on wake word
 
@@ -42,22 +42,16 @@ No audio should be stored by default. If the remote provider requires an upload,
 ## Delivery stages
 
 1. Add tap-to-talk UI, permission handling, listening state, and cancellation.
-2. Select the recognition provider and audio-processing policy.
-3. Implement recognition and transcript insertion.
-4. Measure Chilean Spanish accuracy with a consented evaluation set; do not retain raw audio by default.
+2. Integrate Android on-device recognition with an es-CL capability check.
+3. Evaluate recognition accuracy on the target TV with Chilean Spanish phrases.
+4. Evaluate whisper.cpp local model only if the platform recognizer is missing or inaccurate.
 5. Research wake-word support per target TV platform.
-
-## Decisions needed before remote transcription
-
-- Whether Flowy may send a voice recording to an AI service.
-- Who operates and pays for the backend.
-- Whether transcript confirmation is required before search submission.
 
 ## References
 
 - [Android SpeechRecognizer](https://developer.android.com/reference/android/speech/SpeechRecognizer)
-- [Android TV on-screen keyboard](https://developer.android.com/training/tv/get-started/onscreen-keyboard)
-- [OpenAI speech-to-text](https://developers.openai.com/api/docs/guides/speech-to-text)
-- [OpenAI API key safety](https://developers.openai.com/api/docs/guides/api-keys)
+- [Android RecognitionSupport](https://developer.android.com/reference/android/speech/RecognitionSupport)
+- [whisper.cpp Android example](https://github.com/ggml-org/whisper.cpp/tree/master/examples/whisper.android.java)
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
 - [Android microphone foreground-service restrictions](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start)
 - [Android VoiceInteractionService](https://developer.android.com/reference/android/service/voice/VoiceInteractionService.html)
