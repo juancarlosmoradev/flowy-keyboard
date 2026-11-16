@@ -6,7 +6,7 @@
 - [x] Add a local text-entry test screen.
 - [x] Record initial product requirements and architecture.
 - [x] Build a debug APK in GitHub Actions.
-- [ ] Install and evaluate on an Android TV device.
+- [ ] Install and evaluate on an Android TV device. Use the [Android TV validation checklist](TV_VALIDATION.md).
 
 ## MVP
 
