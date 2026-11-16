@@ -18,9 +18,11 @@
 - [x] Add one-step clear-all behavior.
 - [ ] Validate cursor preservation on target apps and devices.
 - [ ] Select supported devices and Android versions.
+- [x] Document voice recognition and wake-word architecture.
+- [ ] Select speech provider and audio privacy model.
+- [ ] Implement tap-to-talk voice entry.
 
 ## Later
 
 - [ ] Measure interaction time and remote clicks against the default keyboard.
-- [ ] Define offline or remote speech recognition and privacy controls.
-- [ ] Evaluate voice agent feasibility per Android TV platform.
+- [ ] Evaluate wake-word feasibility per Android TV platform.
