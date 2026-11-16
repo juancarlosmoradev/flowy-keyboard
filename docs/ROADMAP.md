@@ -11,8 +11,9 @@
 
 - [ ] Verify D-pad focus order and visible focus.
 - [ ] Validate character entry, deletion, space, and editor action.
-- [ ] Validate cursor preservation when entering edit mode.
+- [x] Restore the latest editor selection when Flowy opens.
 - [x] Add one-step clear-all behavior.
+- [ ] Validate cursor preservation on target apps and devices.
 - [ ] Select supported devices and Android versions.
 
 ## Later

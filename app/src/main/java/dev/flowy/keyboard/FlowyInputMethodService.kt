@@ -5,12 +5,51 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Button
 import android.widget.GridLayout
 import android.widget.LinearLayout
 
 class FlowyInputMethodService : InputMethodService() {
+    private var lastSelectionStart = -1
+    private var lastSelectionEnd = -1
+
+    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(attribute, restarting)
+        if (!restarting) {
+            lastSelectionStart = -1
+            lastSelectionEnd = -1
+        }
+    }
+
+    override fun onUpdateSelection(
+        oldSelStart: Int,
+        oldSelEnd: Int,
+        newSelStart: Int,
+        newSelEnd: Int,
+        candidatesStart: Int,
+        candidatesEnd: Int
+    ) {
+        super.onUpdateSelection(
+            oldSelStart,
+            oldSelEnd,
+            newSelStart,
+            newSelEnd,
+            candidatesStart,
+            candidatesEnd
+        )
+        if (newSelStart >= 0 && newSelEnd >= 0) {
+            lastSelectionStart = newSelStart
+            lastSelectionEnd = newSelEnd
+        }
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        if (lastSelectionStart >= 0 && lastSelectionEnd >= 0) {
+            currentInputConnection?.setSelection(lastSelectionStart, lastSelectionEnd)
+        }
+    }
+
     override fun onCreateInputView(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -71,7 +110,10 @@ class FlowyInputMethodService : InputMethodService() {
 
     private fun clearAllText() {
         val connection = currentInputConnection ?: return
-        val extracted = connection.getExtractedText(ExtractedTextRequest(), 0)
+        val extracted = connection.getExtractedText(
+            android.view.inputmethod.ExtractedTextRequest(),
+            0
+        )
         if (extracted != null) {
             val start = extracted.startOffset.coerceAtLeast(0)
             val end = start + extracted.text.length

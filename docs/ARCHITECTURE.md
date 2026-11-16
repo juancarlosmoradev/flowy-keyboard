@@ -10,9 +10,13 @@
 
 A remote selects a focused key. The key action calls `InputConnection` to commit text, delete text, or invoke the editor action. The operating system routes the change to the focused app.
 
+## Cursor behavior
+
+Flowy records the latest valid selection reported by the editor through `onUpdateSelection`. When its input view starts, it restores that selection through `InputConnection.setSelection`. This relies on host apps reporting selection updates correctly; behavior must be validated across target TV devices and apps.
+
 ## Constraints
 
-The input method does not own the host app's text field or cursor rendering. Cursor preservation must be validated against real editor behavior and tested across target TV devices. Voice and AI features are excluded until their permission, privacy, and platform constraints are documented.
+The input method does not own the host app's text field or cursor rendering. Some apps may not report selection updates consistently or may reject selection changes. Voice and AI features are excluded until their permission, privacy, and platform constraints are documented.
 
 ## Initial stack
 
