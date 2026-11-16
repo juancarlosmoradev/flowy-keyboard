@@ -150,6 +150,9 @@ class FlowyInputMethodService : InputMethodService() {
         text = label
         textSize = 18f
         isAllCaps = false
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        setPadding(0, dp(4), 0, dp(4))
         setTextColor(getColor(R.color.flowy_text))
         background = getDrawable(R.drawable.key_background)
         minWidth = 0
