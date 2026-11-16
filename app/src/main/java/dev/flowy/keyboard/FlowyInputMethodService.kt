@@ -4,6 +4,8 @@ import android.inputmethodservice.InputMethodService
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Button
 import android.widget.GridLayout
 import android.widget.LinearLayout
@@ -40,6 +42,16 @@ class FlowyInputMethodService : InputMethodService() {
             })
         }
         root.addView(grid)
+        root.addView(Button(this).apply {
+            text = "Clear all"
+            contentDescription = "Clear all text"
+            setCompoundDrawablesWithIntrinsicBounds(android.R.drawable.ic_menu_delete, 0, 0, 0)
+            isFocusable = true
+            setOnClickListener { clearAllText() }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
         root.post { root.findFocus()?.let { } ?: grid.getChildAt(0)?.requestFocus() }
         return root
     }
@@ -49,8 +61,29 @@ class FlowyInputMethodService : InputMethodService() {
         when (label) {
             "⌫" -> connection.deleteSurroundingText(1, 0)
             "Space" -> connection.commitText(" ", 1)
-            "↵" -> connection.performEditorAction(currentInputEditorInfo?.imeOptions ?: 0)
+            "↵" -> connection.performEditorAction(
+                currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
+                    ?: EditorInfo.IME_ACTION_DONE
+            )
             else -> connection.commitText(label, 1)
+        }
+    }
+
+    private fun clearAllText() {
+        val connection = currentInputConnection ?: return
+        val extracted = connection.getExtractedText(ExtractedTextRequest(), 0)
+        if (extracted != null) {
+            val start = extracted.startOffset.coerceAtLeast(0)
+            val end = start + extracted.text.length
+            if (connection.setSelection(start, end)) {
+                connection.commitText("", 1)
+                connection.setSelection(start, start)
+            }
+            return
+        }
+        if (connection.performContextMenuAction(android.R.id.selectAll)) {
+            connection.commitText("", 1)
+            connection.setSelection(0, 0)
         }
     }
 }

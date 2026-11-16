@@ -11,8 +11,8 @@
 
 - [ ] Verify D-pad focus order and visible focus.
 - [ ] Validate character entry, deletion, space, and editor action.
-- [ ] Implement cursor-preserving edit mode.
-- [ ] Add one-step clear-all behavior.
+- [ ] Validate cursor preservation when entering edit mode.
+- [x] Add one-step clear-all behavior.
 - [ ] Select supported devices and Android versions.
 
 ## Later
