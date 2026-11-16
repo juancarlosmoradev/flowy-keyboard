@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "dev.flowy.keyboard"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.flowy.keyboard"
