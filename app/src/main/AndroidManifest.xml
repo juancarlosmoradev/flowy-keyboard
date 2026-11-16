@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
     <application
         android:label="Flowy Keyboard"
         android:theme="@android:style/Theme.Material.NoActionBar">
@@ -10,6 +16,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".VoiceCaptureActivity"
+            android:exported="false" />
         <service
             android:name=".FlowyInputMethodService"
             android:label="Flowy Keyboard"

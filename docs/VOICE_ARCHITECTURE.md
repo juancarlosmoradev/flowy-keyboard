@@ -2,38 +2,33 @@
 
 ## Status
 
-Free, on-device recognition is the plan for the first version. No cloud transcription or paid API will be used.
+The first version uses free Android on-device speech recognition. It does not include a paid API or cloud transcription fallback.
 
 ## Product requirements
 
 - A visible microphone key starts a user-requested listening session.
 - Speech is transcribed into the currently focused text field at the current cursor.
-- Recognition must work well with Chilean Spanish.
+- Recognition uses Chilean Spanish where the device's local language model supports it.
 - The user can cancel listening before transcription is committed.
-- A separate voice-agent flow may submit a search after an explicit spoken command.
-- Ordinary dictation must not submit the search automatically.
+- Ordinary dictation does not submit the search automatically.
 - No audio is captured while the user has not started a session.
-- Voice recognition must not silently fall back to cloud processing.
+- Voice recognition never silently falls back to cloud processing.
 
 ## First implementation
 
-Use Android's on-device SpeechRecognizer when the device reports that it is available and supports the installed Spanish language model. The app will explicitly use the on-device recognizer and check language support; it will not use the general recognizer as a fallback because that service may send audio to a remote server.
+Flowy uses Android's on-device SpeechRecognizer on Android 12 or later. On Android 13 and later it checks whether an installed on-device Spanish language model is available before listening. It requests the locale es-CL and does not use the general recognizer as a fallback. On Android 12, language support is confirmed by attempting the local recognizer.
 
-If the Android TV does not provide on-device recognition for Spanish, evaluate whisper.cpp as an optional local model. It supports Android and multilingual transcription. Model size, download, recognition accuracy, latency, and memory usage must be measured on the target TV before selection.
+If there is no local recognizer or Spanish model, Flowy reports that dictation is unavailable on the device. If local recognition proves inadequate on the target TV, evaluate whisper.cpp as an optional local model; measure model size, download, accuracy, latency, and memory first.
 
-The app will not include a cloud provider or backend in this version. Downloading a local model may use network data once; recognition itself runs on the TV.
+The app does not store audio. Downloading a local model may use network data once; recognition itself runs on the TV.
 
 ## Tap-to-talk flow
 
 1. The user focuses the microphone key and presses OK.
-2. Flowy explains and requests microphone permission if needed.
-3. The speech controller checks local recognition support for Spanish (Chile).
-4. If available, Flowy starts a visible listening session.
-5. The user can cancel; otherwise Flowy displays the transcript.
-6. Flowy commits the confirmed transcript through the active InputConnection.
-7. A separate explicit voice-agent command can submit a search after text is committed.
-
-No audio should be stored by default. If no local Spanish recognizer is available, Flowy reports that voice input is unavailable on that device instead of sending audio elsewhere.
+2. Flowy opens a visible listening screen and requests microphone permission if needed.
+3. Flowy checks local recognition and Spanish support.
+4. The user can cancel; otherwise Flowy commits the recognized transcript through the active InputConnection.
+5. Dictation never submits a search automatically.
 
 ## Always-on wake word
 
@@ -41,11 +36,9 @@ No audio should be stored by default. If no local Spanish recognizer is availabl
 
 ## Delivery stages
 
-1. Add tap-to-talk UI, permission handling, listening state, and cancellation.
-2. Integrate Android on-device recognition with an es-CL capability check.
-3. Evaluate recognition accuracy on the target TV with Chilean Spanish phrases.
-4. Evaluate whisper.cpp local model only if the platform recognizer is missing or inaccurate.
-5. Research wake-word support per target TV platform.
+1. Evaluate dictation accuracy on the target TV with Chilean Spanish phrases.
+2. Evaluate whisper.cpp local model only if the platform recognizer is missing or inaccurate.
+3. Research wake-word support per target TV platform.
 
 ## References
 

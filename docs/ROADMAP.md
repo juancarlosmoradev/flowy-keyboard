@@ -19,7 +19,7 @@
 - [ ] Validate cursor preservation on target apps and devices.
 - [ ] Select supported devices and Android versions.
 - [x] Choose free, on-device speech recognition for the first version.
-- [ ] Implement tap-to-talk with Spanish language support checks.
+- [x] Implement tap-to-talk, microphone permission, local Spanish checks, cancellation, and text insertion.
 - [ ] Evaluate local Whisper fallback on the target TV if needed.
 
 ## Later

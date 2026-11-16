@@ -1,6 +1,11 @@
 package dev.flowy.keyboard
 
+import android.content.Intent
 import android.inputmethodservice.InputMethodService
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.ResultReceiver
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -75,7 +80,8 @@ class FlowyInputMethodService : InputMethodService() {
         val actionRow = createRow()
         listOf(
             "Clear all" to 1.5f,
-            "Space" to 5f,
+            "Space" to 4f,
+            "Voz" to 1.5f,
             "↵" to 1.5f
         ).forEach { (label, weight) ->
             val button = createKeyButton(label)
@@ -91,11 +97,41 @@ class FlowyInputMethodService : InputMethodService() {
                     0
                 )
             }
+            if (label == "Voz") {
+                button.contentDescription = "Dictate by voice"
+                button.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.flowy_text)
+                )
+                button.setCompoundDrawablesWithIntrinsicBounds(
+                    android.R.drawable.ic_btn_speak_now,
+                    0,
+                    0,
+                    0
+                )
+                button.setOnClickListener { startVoiceCapture() }
+            }
             actionRow.addView(button, keyLayoutParams(weight))
         }
         root.addView(actionRow)
         root.post { firstKey?.requestFocus() }
         return root
+    }
+
+    private fun startVoiceCapture() {
+        val intent = Intent(this, VoiceCaptureActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(VoiceCaptureActivity.EXTRA_RESULT_RECEIVER, object : ResultReceiver(Handler(Looper.getMainLooper())) {
+                override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                    if (resultCode == VoiceCaptureActivity.RESULT_TRANSCRIPT) {
+                        val transcript = resultData?.getString(VoiceCaptureActivity.EXTRA_TRANSCRIPT)
+                        if (!transcript.isNullOrBlank()) {
+                            currentInputConnection?.commitText(transcript, 1)
+                        }
+                    }
+                }
+            })
+        }
+        startActivity(intent)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -133,6 +169,7 @@ class FlowyInputMethodService : InputMethodService() {
                 currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
                     ?: EditorInfo.IME_ACTION_DONE
             )
+            "Voz" -> startVoiceCapture()
             else -> connection.commitText(label, 1)
         }
     }
