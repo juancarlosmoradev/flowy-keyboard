@@ -11,7 +11,8 @@
 ## MVP
 
 - [x] Add Spanish (Chile) QWERTY layout with ñ and punctuation.
-- [ ] Verify D-pad focus order and visible focus.
+- [x] Add high-contrast focus styling for remote navigation.
+- [ ] Verify D-pad focus order and visible focus on device.
 - [ ] Validate character entry, deletion, space, and editor action.
 - [x] Restore the latest editor selection when Flowy opens.
 - [x] Add one-step clear-all behavior.

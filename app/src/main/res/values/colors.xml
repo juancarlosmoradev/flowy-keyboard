@@ -1,0 +1,9 @@
+<resources>
+    <color name="flowy_surface">#111827</color>
+    <color name="flowy_key">#243247</color>
+    <color name="flowy_key_border">#526176</color>
+    <color name="flowy_focus">#E7B14C</color>
+    <color name="flowy_focus_border">#FFF1C9</color>
+    <color name="flowy_pressed">#C7902E</color>
+    <color name="flowy_text">#F5F7FA</color>
+</resources>

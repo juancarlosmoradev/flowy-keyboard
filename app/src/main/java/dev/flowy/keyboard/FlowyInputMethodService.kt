@@ -54,7 +54,8 @@ class FlowyInputMethodService : InputMethodService() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(12, 8, 12, 8)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setBackgroundColor(getColor(R.color.flowy_surface))
         }
         val rows = listOf(
             listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -80,6 +81,9 @@ class FlowyInputMethodService : InputMethodService() {
             val button = createKeyButton(label)
             if (label == "Clear all") {
                 button.contentDescription = "Clear all text"
+                button.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.flowy_text)
+                )
                 button.setCompoundDrawablesWithIntrinsicBounds(
                     android.R.drawable.ic_menu_delete,
                     0,
@@ -94,6 +98,8 @@ class FlowyInputMethodService : InputMethodService() {
         return root
     }
 
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
     private fun createRow() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
@@ -101,12 +107,15 @@ class FlowyInputMethodService : InputMethodService() {
 
     private fun keyLayoutParams(weight: Float = 1f) =
         LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight).apply {
-            setMargins(2, 2, 2, 2)
+            setMargins(dp(3), dp(3), dp(3), dp(3))
         }
 
     private fun createKeyButton(label: String) = Button(this).apply {
         text = label
         textSize = 18f
+        isAllCaps = false
+        setTextColor(getColor(R.color.flowy_text))
+        background = getDrawable(R.drawable.key_background)
         minWidth = 0
         minHeight = (56 * resources.displayMetrics.density).toInt()
         isFocusable = true
