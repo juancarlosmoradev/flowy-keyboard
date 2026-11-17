@@ -29,6 +29,7 @@ class VoiceCaptureActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var actionButton: Button
     private var resultReceiver: ResultReceiver? = null
+    private var pendingTranscript: String? = null
 
     private val worker = Executors.newSingleThreadExecutor()
     private val cancelRequested = AtomicBoolean(false)
@@ -92,6 +93,10 @@ class VoiceCaptureActivity : Activity() {
 
     private fun onPrimaryAction() {
         if (operationInProgress) return
+        if (pendingTranscript != null) {
+            deliverTranscript()
+            return
+        }
         if (!modelFile.isFile || modelFile.length() <= MIN_MODEL_BYTES) {
             downloadModel()
             return
@@ -223,7 +228,7 @@ class VoiceCaptureActivity : Activity() {
                 )
                 if (minimumBuffer <= 0) throw IllegalStateException("AudioRecord no disponible")
                 recorder = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -312,10 +317,11 @@ class VoiceCaptureActivity : Activity() {
                     operationInProgress = false
                     if (isFinishing || cancelRequested.get()) return@runOnUiThread
                     if (transcript.isNotBlank()) {
-                        resultReceiver?.send(RESULT_TRANSCRIPT, Bundle().apply {
-                            putString(EXTRA_TRANSCRIPT, transcript)
-                        })
-                        finish()
+                        pendingTranscript = transcript
+                        statusView.text = "Whisper reconoció esto:\n\n$transcript\n\nRevísalo y toca Insertar texto."
+                        actionButton.text = "Insertar texto"
+                        actionButton.isEnabled = true
+                        actionButton.setOnClickListener { deliverTranscript() }
                     } else {
                         statusView.text =
                             "Audio recibido (pico $peakAmplitude), pero no se reconocieron palabras. Acércate al micrófono y prueba otra vez."
@@ -363,6 +369,19 @@ class VoiceCaptureActivity : Activity() {
         cancelRequested.set(true)
         stopRequested.set(true)
         activeConnection?.disconnect()
+        finish()
+    }
+
+    private fun deliverTranscript() {
+        val transcript = pendingTranscript ?: return
+        val receiver = resultReceiver
+        if (receiver == null) {
+            statusView.text = "La transcripción quedó lista, pero no hay conexión con el teclado. Mantén esta pantalla abierta y vuelve a intentarlo."
+            return
+        }
+        receiver.send(RESULT_TRANSCRIPT, Bundle().apply {
+            putString(EXTRA_TRANSCRIPT, transcript)
+        })
         finish()
     }
 
