@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.ResultReceiver
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -83,6 +84,58 @@ class FlowyInputMethodService : InputMethodService() {
 
     private inner class FlowyKeyButton(context: Context) : Button(context) {
         var centerIcon: Drawable? = null
+        var isBackspaceKey = false
+        private var deleteHeld = false
+        private var deleteRepeatTask: Runnable? = null
+
+        fun startContinuousDelete(view: View) {
+            stopContinuousDelete()
+            deleteHeld = true
+            handleKey("⌫")
+            val repeat = object : Runnable {
+                override fun run() {
+                    if (!deleteHeld) return
+                    handleKey("⌫")
+                    mainHandler.postDelayed(this, 75L)
+                }
+            }
+            deleteRepeatTask = repeat
+            mainHandler.postDelayed(repeat, 350L)
+        }
+
+        fun stopContinuousDelete() {
+            deleteHeld = false
+            deleteRepeatTask?.let(mainHandler::removeCallbacks)
+            deleteRepeatTask = null
+        }
+
+        override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+            if (isBackspaceKey && keyCode in setOf(
+                    KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    KeyEvent.KEYCODE_SPACE
+                )
+            ) {
+                if (event.repeatCount == 0) startContinuousDelete(this)
+                return true
+            }
+            return super.onKeyDown(keyCode, event)
+        }
+
+        override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+            if (isBackspaceKey && keyCode in setOf(
+                    KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    KeyEvent.KEYCODE_SPACE
+                )
+            ) {
+                stopContinuousDelete()
+                return true
+            }
+            return super.onKeyUp(keyCode, event)
+        }
         var symbolHint: String = ""
         private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFA4A8B0.toInt()
@@ -302,6 +355,7 @@ class FlowyInputMethodService : InputMethodService() {
         symbolHint = alternates.take(2).joinToString(" ")
         if (label == "⌫") {
             text = ""
+            isBackspaceKey = true
             centerIcon = getDrawable(R.drawable.ic_backspace)
         }
         setOnClickListener {
@@ -316,6 +370,27 @@ class FlowyInputMethodService : InputMethodService() {
 
         isLongClickable = false
         setOnTouchListener { view, event ->
+            if (label == "⌫") {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dismissSymbolPopup()
+                        performKeyHaptic(view)
+                        view.isPressed = true
+                        startContinuousDelete(view)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (event.x < 0 || event.y < 0 || event.x >= view.width || event.y >= view.height) {
+                            stopContinuousDelete()
+                            view.isPressed = false
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        stopContinuousDelete()
+                        view.isPressed = false
+                    }
+                }
+                return@setOnTouchListener true
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     dismissSymbolPopup()
