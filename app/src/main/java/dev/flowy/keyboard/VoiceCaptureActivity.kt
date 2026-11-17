@@ -23,6 +23,7 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
+import kotlin.math.sqrt
 
 class VoiceCaptureActivity : Activity() {
     private lateinit var statusView: TextView
@@ -205,7 +206,7 @@ class VoiceCaptureActivity : Activity() {
         cancelRequested.set(false)
         stopRequested.set(false)
         actionButton.text = "Detener y transcribir"
-        statusView.text = "Listo para grabar. Habla después de iniciar."
+        statusView.text = "Iniciando micrófono…"
         actionButton.setOnClickListener {
             stopRequested.set(true)
             actionButton.isEnabled = false
@@ -222,7 +223,7 @@ class VoiceCaptureActivity : Activity() {
                 )
                 if (minimumBuffer <= 0) throw IllegalStateException("AudioRecord no disponible")
                 recorder = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    MediaRecorder.AudioSource.MIC,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -241,12 +242,40 @@ class VoiceCaptureActivity : Activity() {
 
                 val samples = ArrayList<Short>(MAX_SAMPLES)
                 val buffer = ShortArray(READ_BUFFER_SAMPLES)
+                var peakAmplitude = 0
+                var windowPeak = 0
+                var windowSquareSum = 0.0
+                var windowSampleCount = 0
+                var lastLevelUpdate = 0L
                 while (!cancelRequested.get() && !stopRequested.get() && samples.size < MAX_SAMPLES) {
                     val count = recorder.read(buffer, 0, buffer.size)
                     if (count < 0) throw IllegalStateException("Error leyendo el micrófono: $count")
                     for (index in 0 until count) {
                         if (samples.size >= MAX_SAMPLES) break
+                        val sample = buffer[index].toInt()
+                        val magnitude = kotlin.math.abs(sample)
+                        peakAmplitude = max(peakAmplitude, magnitude)
+                        windowPeak = max(windowPeak, magnitude)
+                        windowSquareSum += sample.toDouble() * sample.toDouble()
+                        windowSampleCount++
                         samples.add(buffer[index])
+                    }
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastLevelUpdate >= 350 && windowSampleCount > 0) {
+                        val rms = sqrt(windowSquareSum / windowSampleCount)
+                        val levelPercent = (rms / 32768.0 * 100.0).toInt()
+                        val signalState = if (windowPeak < MIN_SIGNAL_PEAK) "muy bajo" else "recibido"
+                        runOnUiThread {
+                            if (!isFinishing && !cancelRequested.get()) {
+                                statusView.text =
+                                    "Escuchando… señal $signalState ($levelPercent%). Toca Detener y transcribir."
+                            }
+                        }
+                        lastLevelUpdate = now
+                        windowPeak = 0
+                        windowSquareSum = 0.0
+                        windowSampleCount = 0
                     }
                 }
                 if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
@@ -259,6 +288,9 @@ class VoiceCaptureActivity : Activity() {
                 if (cancelRequested.get()) return@execute
                 if (samples.size < MIN_SAMPLES) {
                     throw IllegalStateException("Grabación demasiado corta")
+                }
+                if (peakAmplitude < MIN_SIGNAL_PEAK) {
+                    throw IllegalStateException("No se recibió audio del micrófono")
                 }
 
                 runOnUiThread {
@@ -285,7 +317,8 @@ class VoiceCaptureActivity : Activity() {
                         })
                         finish()
                     } else {
-                        statusView.text = "No se reconoció voz. Pulsa para intentarlo de nuevo."
+                        statusView.text =
+                            "Audio recibido (pico $peakAmplitude), pero no se reconocieron palabras. Acércate al micrófono y prueba otra vez."
                         actionButton.text = "Iniciar dictado"
                         actionButton.isEnabled = true
                         actionButton.setOnClickListener { onPrimaryAction() }
@@ -313,7 +346,8 @@ class VoiceCaptureActivity : Activity() {
                     operationInProgress = false
                     if (!isFinishing && !cancelRequested.get()) {
                         statusView.text = when (error.message) {
-                            "Grabación demasiado corta" -> "No se detectó suficiente voz. Inténtalo de nuevo."
+                            "Grabación demasiado corta" -> "La grabación fue muy corta. Habla al menos un segundo e inténtalo de nuevo."
+                            "No se recibió audio del micrófono" -> "No está llegando audio. Revisa el permiso y el micrófono activo del teléfono."
                             else -> "Falló la grabación o la transcripción local. Inténtalo de nuevo."
                         }
                         actionButton.isEnabled = true
@@ -368,6 +402,7 @@ class VoiceCaptureActivity : Activity() {
         private const val MAX_RECORDING_SECONDS = 30
         private const val MAX_SAMPLES = SAMPLE_RATE * MAX_RECORDING_SECONDS
         private const val MIN_SAMPLES = SAMPLE_RATE / 2
+        private const val MIN_SIGNAL_PEAK = 80
         private const val MODEL_FILE_NAME = "whisper-tiny-q5_1-es.ggml"
         private const val MIN_MODEL_BYTES = 30L * 1024L * 1024L
         private const val MODEL_SHA256 = "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7"
