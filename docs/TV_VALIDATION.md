@@ -25,8 +25,8 @@ Mark each result as **Pass**, **Fail**, or **Blocked**. Include a short note for
 | Installation | APK installs and Flowy can be enabled and selected as the active input method. |  |  |
 | Remote focus | D-pad navigation reaches every key; the focused key is clearly visible at TV viewing distance. |  |  |
 | Layout | Spanish (Chile) layout shows `ñ`, comma, and period in usable positions. |  |  |
-| Key preview | Press a letter, punctuation mark, or backspace and confirm a readable popup appears above the key while held. |  |  |
-| Long press | Long-press a letter and confirm a selectable popup lists all of its alternatives; selecting one inserts it, while a normal press inserts the letter. |  |  |
+| Key preview | Press a character and confirm a readable preview appears centered above it; verify it adapts at the first and last keys and does not appear on delete. |  |  |
+| Long press | Long-press a letter and confirm an in-keyboard palette lists its alternatives; selecting one inserts it without recreating or resetting the keyboard. |  |  |
 | Button labels | Action keys stay within their buttons at phone and TV widths. |  |  |
 | Text entry | Letters and punctuation appear in the test field. |  |  |
 | Deletion | Backspace deletes one character at the current cursor. |  |  |
@@ -36,7 +36,7 @@ Mark each result as **Pass**, **Fail**, or **Blocked**. Include a short note for
 | Cursor | Place the cursor inside existing text, reopen Flowy, and confirm the selection remains at that position. Repeat in each target app. |  |  |
 | Model download | The model downloads once, progress is shown, and a verified model is available for later use. |  |  |
 | Mic permission | First microphone tap requests permission; granting it starts listening without another tap. |  |  |
-| Voice endpointing | Speak a short phrase, pause for one second, and confirm recording stops and transcription starts automatically. |  |  |
+| Voice endpointing | Tap the mic once, speak a short phrase, pause for one second, and confirm the animated voice screen closes after it inserts the transcript automatically. |  |  |
 | Dictation cancel | Cancel listening before speech is committed; confirm no transcript is inserted. |  |  |
 | Local Spanish model | With the downloaded local model, dictation transcribes Spanish and inserts the result into the active field. |  |  |
 | Offline dictation | After downloading the model, disable Wi-Fi/network and dictate a short Chilean Spanish phrase. Confirm transcription still works. |  |  |
