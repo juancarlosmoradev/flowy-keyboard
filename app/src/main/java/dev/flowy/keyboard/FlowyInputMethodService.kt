@@ -613,10 +613,7 @@ class FlowyInputMethodService : InputMethodService() {
     private fun handleKey(label: String) {
         val connection = currentInputConnection ?: return
         when (label) {
-            "⌫" -> {
-                if (composingWord.isNotEmpty()) updateComposingWord(composingWord.dropLast(1))
-                else connection.deleteSurroundingText(1, 0)
-            }
+            "⌫" -> deleteBackward(connection)
             "Space" -> {
                 finishComposition()
                 connection.commitText(" ", 1)
@@ -639,6 +636,38 @@ class FlowyInputMethodService : InputMethodService() {
                 connection.commitText(label, 1)
             }
         }
+    }
+
+    private fun deleteBackward(connection: android.view.inputmethod.InputConnection) {
+        val selectedText = runCatching { connection.getSelectedText(0) }.getOrNull()
+        val extractedSelection = runCatching {
+            connection.getExtractedText(ExtractedTextRequest(), 0)
+        }.getOrNull()?.let { extracted ->
+            if (extracted.selectionStart >= 0 && extracted.selectionEnd >= 0) {
+                extracted.selectionStart != extracted.selectionEnd
+            } else {
+                null
+            }
+        }
+        val trackedSelection = lastSelectionStart >= 0 &&
+            lastSelectionEnd >= 0 &&
+            lastSelectionStart != lastSelectionEnd
+        val hasSelection = !selectedText.isNullOrEmpty() ||
+            extractedSelection == true ||
+            (extractedSelection == null && trackedSelection)
+
+        if (hasSelection) {
+            if (connection.commitText("", 1)) {
+                composingWord = ""
+                lastSelectionStart = -1
+                lastSelectionEnd = -1
+                showCandidates(emptyList())
+            }
+            return
+        }
+
+        if (composingWord.isNotEmpty()) updateComposingWord(composingWord.dropLast(1))
+        else connection.deleteSurroundingText(1, 0)
     }
 
     private companion object {
