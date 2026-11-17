@@ -14,6 +14,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Toast
 
 class FlowyInputMethodService : InputMethodService() {
     private var lastSelectionStart = -1
