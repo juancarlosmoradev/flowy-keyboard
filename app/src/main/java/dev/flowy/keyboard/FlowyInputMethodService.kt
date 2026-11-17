@@ -25,6 +25,8 @@ class FlowyInputMethodService : InputMethodService() {
     private var lastSelectionStart = -1
     private var lastSelectionEnd = -1
     private var keyPreview: PopupWindow? = null
+    private var pendingTranscript: String? = null
+    private var transcriptDeliveryId = 0
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
@@ -133,27 +135,62 @@ class FlowyInputMethodService : InputMethodService() {
                     if (resultCode == VoiceCaptureActivity.RESULT_TRANSCRIPT) {
                         val transcript = resultData?.getString(VoiceCaptureActivity.EXTRA_TRANSCRIPT)
                         if (!transcript.isNullOrBlank()) {
-                            val committed = runCatching {
-                                val activeConnection = currentInputConnection
-                                when {
-                                    activeConnection?.commitText(transcript, 1) == true -> true
-                                    activeConnection !== targetConnection -> targetConnection.commitText(transcript, 1)
-                                    else -> false
-                                }
-                            }.getOrDefault(false)
-                            if (!committed) {
-                                Toast.makeText(
-                                    this@FlowyInputMethodService,
-                                    "El campo de texto rechazó la transcripción.",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
+                            deliverTranscriptWhenEditorResumes(transcript, targetConnection)
                         }
                     }
                 }
             })
         }
         startActivity(intent)
+    }
+
+    private fun deliverTranscriptWhenEditorResumes(
+        transcript: String,
+        originalConnection: android.view.inputmethod.InputConnection
+    ) {
+        pendingTranscript = transcript
+        val deliveryId = ++transcriptDeliveryId
+        requestShowSelf(0)
+        tryCommitTranscript(deliveryId, transcript, originalConnection, attempt = 0)
+    }
+
+    private fun tryCommitTranscript(
+        deliveryId: Int,
+        transcript: String,
+        originalConnection: android.view.inputmethod.InputConnection,
+        attempt: Int
+    ) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (deliveryId != transcriptDeliveryId || pendingTranscript != transcript) return@postDelayed
+
+            val activeConnection = currentInputConnection
+            val activeCommitted = runCatching {
+                activeConnection?.commitText(transcript, 1) == true
+            }.getOrDefault(false)
+            if (activeCommitted) {
+                pendingTranscript = null
+                return@postDelayed
+            }
+
+            if (attempt < 8) {
+                tryCommitTranscript(deliveryId, transcript, originalConnection, attempt + 1)
+                return@postDelayed
+            }
+
+            val fallbackCommitted = if (activeConnection !== originalConnection) {
+                runCatching { originalConnection.commitText(transcript, 1) }.getOrDefault(false)
+            } else {
+                false
+            }
+            pendingTranscript = null
+            if (!fallbackCommitted) {
+                Toast.makeText(
+                    this,
+                    "Reconocí el dictado, pero Android no reactivó el campo de texto. Toca el campo y vuelve a insertar.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }, if (attempt == 0) 250L else 150L)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
