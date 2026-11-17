@@ -121,6 +121,12 @@ class FlowyInputMethodService : InputMethodService() {
     }
 
     private fun startVoiceCapture() {
+        val targetConnection = currentInputConnection
+        if (targetConnection == null) {
+            Toast.makeText(this, "No hay un campo de texto activo.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val intent = Intent(this, VoiceCaptureActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra(VoiceCaptureActivity.EXTRA_RESULT_RECEIVER, object : ResultReceiver(Handler(Looper.getMainLooper())) {
@@ -128,7 +134,16 @@ class FlowyInputMethodService : InputMethodService() {
                     if (resultCode == VoiceCaptureActivity.RESULT_TRANSCRIPT) {
                         val transcript = resultData?.getString(VoiceCaptureActivity.EXTRA_TRANSCRIPT)
                         if (!transcript.isNullOrBlank()) {
-                            currentInputConnection?.commitText(transcript, 1)
+                            val committed = runCatching {
+                                targetConnection.commitText(transcript, 1)
+                            }.getOrDefault(false)
+                            if (!committed) {
+                                Toast.makeText(
+                                    this@FlowyInputMethodService,
+                                    "El campo de texto rechazó la transcripción.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                     }
                 }
