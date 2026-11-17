@@ -107,7 +107,7 @@ class MainActivity : Activity() {
         inputCard.addView(EditText(this).apply {
             hint = "Escribe algo aquí"
             textSize = 20f
-            singleLine = true
+            setSingleLine(true)
             imeOptions = EditorInfo.IME_ACTION_DONE
             setTextColor(Color.rgb(247, 248, 255))
             setHintTextColor(Color.rgb(111, 124, 149))
