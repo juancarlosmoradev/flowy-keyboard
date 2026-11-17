@@ -1,9 +1,15 @@
 <resources>
-    <color name="flowy_surface">#111827</color>
-    <color name="flowy_key">#243247</color>
-    <color name="flowy_key_border">#526176</color>
-    <color name="flowy_focus">#E7B14C</color>
-    <color name="flowy_focus_border">#FFF1C9</color>
-    <color name="flowy_pressed">#C7902E</color>
-    <color name="flowy_text">#F5F7FA</color>
+    <color name="flowy_surface">#10131D</color>
+    <color name="flowy_surface_top">#1A2030</color>
+    <color name="flowy_key">#252C3D</color>
+    <color name="flowy_key_border">#323B50</color>
+    <color name="flowy_focus">#38445A</color>
+    <color name="flowy_focus_border">#69E2D0</color>
+    <color name="flowy_pressed">#35465A</color>
+    <color name="flowy_action">#202738</color>
+    <color name="flowy_action_pressed">#2D3A4F</color>
+    <color name="flowy_accent">#66E0CF</color>
+    <color name="flowy_accent_dark">#36BCA9</color>
+    <color name="flowy_text">#F5F7FC</color>
+    <color name="flowy_muted">#AEB9CC</color>
 </resources>
