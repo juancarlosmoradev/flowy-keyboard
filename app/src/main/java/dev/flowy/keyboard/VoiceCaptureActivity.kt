@@ -410,11 +410,12 @@ class VoiceCaptureActivity : Activity() {
                     }
 
                     val now = System.currentTimeMillis()
-                    if (now - lastLevelUpdate >= 400 && count > 0) {
-                        val levelPercent = (sqrt(squareSumForBuffer(buffer, count)) / 32768.0 * 100.0).toInt()
+                    if (now - lastLevelUpdate >= 80 && count > 0) {
+                        val rms = sqrt(squareSumForBuffer(buffer, count)) / 32768.0
+                        val responsiveLevel = sqrt((rms * 8.0).coerceIn(0.0, 1.0)).toFloat()
                         runOnUiThread {
                             if (!isFinishing && !cancelRequested.get() && !speechFinished) {
-                                visualizer.audioLevel = (levelPercent / 100f).coerceIn(0.02f, 0.9f)
+                                visualizer.audioLevel = responsiveLevel.coerceIn(0.02f, 1f)
                                 if (!speechStarted) detailView.text = ""
                             }
                         }
@@ -609,6 +610,7 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
     var audioLevel: Float = 0.08f
         set(value) {
             field = value.coerceIn(0f, 1f)
+            postInvalidateOnAnimation()
         }
     var progress: Float? = null
         set(value) {
@@ -617,6 +619,7 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
         }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val particleCount = 104
     private val startTime = System.currentTimeMillis()
 
     init {
@@ -650,7 +653,7 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
         paint.style = Paint.Style.FILL
         paint.shader = RadialGradient(
             0f, 0f, 145f,
-            intArrayOf(Color.argb(45, 96, 213, 227), Color.argb(22, 138, 118, 255), Color.TRANSPARENT),
+            intArrayOf(Color.argb(62, 0, 245, 255), Color.argb(42, 255, 43, 214), Color.TRANSPARENT),
             floatArrayOf(0f, 0.6f, 1f),
             Shader.TileMode.CLAMP
         )
@@ -663,9 +666,9 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = if (ring == 0) 1.5f else 1f
             paint.color = when (ring % 3) {
-                0 -> Color.argb((34 + drift * 50).toInt(), 107, 236, 216)
-                1 -> Color.argb((26 + drift * 42).toInt(), 130, 159, 255)
-                else -> Color.argb((22 + drift * 32).toInt(), 190, 132, 255)
+                0 -> Color.argb((34 + drift * 50).toInt(), 0, 245, 255)
+                1 -> Color.argb((26 + drift * 42).toInt(), 255, 43, 214)
+                else -> Color.argb((22 + drift * 32).toInt(), 132, 72, 255)
             }
             canvas.drawCircle(0f, 0f, radius, paint)
         }
@@ -692,8 +695,8 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             canvas.drawLine(x1, y1, x2, y2, paint)
         }
 
-        for (particle in 0 until 60) {
-            val baseAngle = particle * (Math.PI * 2.0 / 60.0) +
+        for (particle in 0 until particleCount) {
+            val baseAngle = particle * (Math.PI * 2.0 / particleCount) +
                 kotlin.math.sin(particle * 9.7).toDouble() * 0.11
             val orbit = 72f + (particle % 12) * 7.1f +
                 kotlin.math.sin((elapsed * speed * 0.9f + particle * 1.73f).toDouble()).toFloat() *
@@ -704,8 +707,8 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             val twinkle = (kotlin.math.sin((elapsed * speed * 2f + particle * 0.81f).toDouble()).toFloat() + 1f) / 2f
             val radius = 0.8f + (particle % 5) * 0.36f
             paint.style = Paint.Style.FILL
-            paint.color = if (particle % 3 == 0) Color.argb((105 + twinkle * 140).toInt(), 146, 250, 226)
-                else Color.argb((72 + twinkle * 130).toInt(), 154, 184, 255)
+            paint.color = if (particle % 3 == 0) Color.argb((125 + twinkle * 130).toInt(), 0, 245, 255)
+                else Color.argb((95 + twinkle * 145).toInt(), 255, 43, 214)
             canvas.drawCircle(x, y, radius, paint)
             if (particle % 7 == 0) {
                 paint.style = Paint.Style.STROKE
@@ -720,7 +723,7 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
         paint.style = Paint.Style.FILL
         paint.shader = RadialGradient(
             -16f, -18f, coreRadius * 1.8f,
-            intArrayOf(Color.rgb(126, 246, 223), Color.rgb(91, 159, 230), Color.rgb(92, 84, 166)),
+            intArrayOf(Color.rgb(0, 245, 255), Color.rgb(255, 43, 214), Color.rgb(92, 46, 255)),
             floatArrayOf(0f, 0.52f, 1f),
             Shader.TileMode.CLAMP
         )
