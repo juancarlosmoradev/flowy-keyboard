@@ -4,6 +4,10 @@
 
 Record manual acceptance checks on a physical Android TV device. A successful CI build confirms APK assembly only; it does not confirm installation, remote focus, text editing, microphone access, or speech recognition on a TV.
 
+## Compatibility scope
+
+The goal is broad Android TV compatibility, not a device-specific workaround. Record each test device for reproducibility, but do not add brand- or model-specific code paths. The build should include the Android CPU architectures selected for the native Whisper library.
+
 ## Build under evaluation
 
 Download the `flowy-keyboard-debug` artifact from the latest successful **Android Build** run on `main`. Keep the run URL, commit SHA, and artifact together in the validation record.
