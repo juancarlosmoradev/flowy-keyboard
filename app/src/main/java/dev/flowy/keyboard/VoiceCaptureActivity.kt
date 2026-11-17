@@ -4,6 +4,13 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RadialGradient
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.Typeface
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -13,6 +20,7 @@ import android.os.ResultReceiver
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.io.File
@@ -27,7 +35,9 @@ import kotlin.math.sqrt
 
 class VoiceCaptureActivity : Activity() {
     private lateinit var statusView: TextView
+    private lateinit var detailView: TextView
     private lateinit var actionButton: Button
+    private lateinit var visualizer: VoiceListeningVisual
     private var resultReceiver: ResultReceiver? = null
 
     private val worker = Executors.newSingleThreadExecutor()
@@ -42,6 +52,8 @@ class VoiceCaptureActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = Color.rgb(11, 14, 24)
+        window.navigationBarColor = Color.rgb(11, 14, 24)
         @Suppress("DEPRECATION")
         resultReceiver = if (Build.VERSION.SDK_INT >= 33) {
             intent.getParcelableExtra(EXTRA_RESULT_RECEIVER, ResultReceiver::class.java)
@@ -60,40 +72,98 @@ class VoiceCaptureActivity : Activity() {
     }
 
     private fun createContent() {
+        val root = FrameLayout(this).apply {
+            background = getDrawable(R.drawable.voice_background)
+        }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-            setBackgroundColor(getColor(R.color.flowy_surface))
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(26), dp(26), dp(26), dp(30))
         }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(this).apply {
+            text = "●"
+            textSize = 13f
+            setTextColor(Color.rgb(106, 236, 215))
+        })
+        header.addView(TextView(this).apply {
+            text = "  FLOWY VOICE"
+            textSize = 11f
+            letterSpacing = 0.2f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(194, 204, 226))
+        })
+        layout.addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(34)
+        ))
+
+        val visualArea = FrameLayout(this)
+        visualizer = VoiceListeningVisual(this)
+        visualArea.addView(visualizer, FrameLayout.LayoutParams(dp(300), dp(300), Gravity.CENTER))
+        layout.addView(visualArea, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+
         statusView = TextView(this).apply {
-            textSize = 22f
+            textSize = 24f
             gravity = Gravity.CENTER
-            setTextColor(getColor(R.color.flowy_text))
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Color.rgb(247, 248, 255))
         }
-        actionButton = Button(this).apply {
-            textSize = 18f
-            isSingleLine = true
-            setOnClickListener { onPrimaryAction() }
-        }
-        val cancelButton = Button(this).apply {
-            text = "Cancelar"
-            textSize = 18f
-            setOnClickListener { cancelAndFinish() }
+        detailView = TextView(this).apply {
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(151, 164, 191))
         }
         layout.addView(statusView)
-        layout.addView(actionButton)
-        layout.addView(cancelButton)
-        setContentView(layout)
+        layout.addView(detailView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+
+        actionButton = Button(this).apply {
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            isSingleLine = true
+            isAllCaps = false
+            setTextColor(Color.rgb(20, 25, 38))
+            background = getDrawable(R.drawable.voice_stop_background)
+            stateListAnimator = null
+            setOnClickListener { onPrimaryAction() }
+        }
+        val cancelButton = TextView(this).apply {
+            text = "Cancelar"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(149, 161, 186))
+            background = getDrawable(R.drawable.voice_cancel_background)
+            setOnClickListener { cancelAndFinish() }
+        }
+        layout.addView(actionButton, LinearLayout.LayoutParams(dp(170), dp(52)).apply {
+            topMargin = dp(28)
+        })
+        layout.addView(cancelButton, LinearLayout.LayoutParams(dp(130), dp(44)).apply {
+            topMargin = dp(8)
+        })
+        root.addView(layout, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        setContentView(root)
     }
 
     private fun renderReadyState() {
+        visualizer.setMode(VoiceListeningVisual.Mode.READY)
+        statusView.setTextColor(Color.rgb(247, 248, 255))
+        detailView.text = ""
         if (modelFile.isFile && modelFile.length() > MIN_MODEL_BYTES) {
-            statusView.text = "Modelo Whisper local listo. La transcripción se procesa en este dispositivo."
-            actionButton.text = "Iniciar dictado"
+            statusView.text = "Voz lista"
+            actionButton.text = "Empezar"
         } else {
-            statusView.text = "Descarga una vez el modelo local de español. Requiere cerca de 32 MB."
-            actionButton.text = "Descargar modelo local"
+            statusView.text = "Preparando tu voz"
+            detailView.text = "El modelo se descarga una vez"
+            actionButton.text = "Continuar"
         }
     }
 
@@ -108,6 +178,9 @@ class VoiceCaptureActivity : Activity() {
 
     private fun requestPermissionOrStart() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            visualizer.setMode(VoiceListeningVisual.Mode.READY)
+            statusView.text = "Permiso de micrófono"
+            detailView.text = "Necesario para escuchar tu voz"
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO)
         } else {
             startRecordingAndTranscription()
@@ -119,7 +192,9 @@ class VoiceCaptureActivity : Activity() {
         operationInProgress = true
         cancelRequested.set(false)
         actionButton.isEnabled = false
-        statusView.text = "Conectando para descargar el modelo Whisper local…"
+        visualizer.setMode(VoiceListeningVisual.Mode.PREPARING)
+        statusView.text = "Preparando voz"
+        detailView.text = ""
         worker.execute {
             var connection: HttpURLConnection? = null
             val temporaryFile = File(filesDir, "$MODEL_FILE_NAME.part")
@@ -159,11 +234,9 @@ class VoiceCaptureActivity : Activity() {
                                 }
                                 runOnUiThread {
                                     if (!isFinishing && !cancelRequested.get()) {
-                                        statusView.text = if (percent >= 0) {
-                                            "Descargando modelo local: $percent%"
-                                        } else {
-                                            "Descargados ${downloaded / (1024 * 1024)} MB…"
-                                        }
+                                        statusView.text = "Preparando voz"
+                                        detailView.text = if (percent >= 0) "$percent%" else "Descargando modelo local"
+                                        visualizer.progress = if (percent >= 0) percent / 100f else null
                                     }
                                 }
                             }
@@ -205,7 +278,9 @@ class VoiceCaptureActivity : Activity() {
                     if (!isFinishing && !cancelRequested.get()) {
                         actionButton.isEnabled = true
                         actionButton.text = "Reintentar descarga"
-                        statusView.text = "Falló la descarga o verificación del modelo. Revisa la conexión y reintenta."
+                        visualizer.setMode(VoiceListeningVisual.Mode.READY)
+                        statusView.text = "No se pudo preparar la voz"
+                        detailView.text = "Revisa tu conexión e inténtalo de nuevo"
                     }
                 }
             } finally {
@@ -220,12 +295,20 @@ class VoiceCaptureActivity : Activity() {
         operationInProgress = true
         cancelRequested.set(false)
         stopRequested.set(false)
-        actionButton.text = "Terminar ahora"
-        statusView.text = "Iniciando dictado…"
+        visualizer.setMode(VoiceListeningVisual.Mode.LISTENING)
+        visualizer.progress = null
+        visualizer.audioLevel = 0.08f
+        statusView.setTextColor(Color.rgb(247, 248, 255))
+        actionButton.text = "Detener"
+        actionButton.isEnabled = true
+        statusView.text = "Te escucho"
+        detailView.text = "Haz una pausa para terminar"
         actionButton.setOnClickListener {
             stopRequested.set(true)
             actionButton.isEnabled = false
-            statusView.text = "Terminando y transcribiendo…"
+            visualizer.setMode(VoiceListeningVisual.Mode.PROCESSING)
+            statusView.text = "Transcribiendo"
+            detailView.text = ""
         }
 
         worker.execute {
@@ -249,11 +332,6 @@ class VoiceCaptureActivity : Activity() {
                 }
                 activeRecorder = recorder
                 recorder.startRecording()
-                runOnUiThread {
-                    if (!isFinishing && !cancelRequested.get()) {
-                        statusView.text = "Habla ahora. El dictado termina al detectar una pausa."
-                    }
-                }
 
                 val samples = ArrayList<Short>(MAX_SAMPLES)
                 val buffer = ShortArray(READ_BUFFER_SAMPLES)
@@ -296,11 +374,6 @@ class VoiceCaptureActivity : Activity() {
                                 speechFrameCount++
                                 if (speechFrameCount >= REQUIRED_SPEECH_FRAMES) {
                                     speechStarted = true
-                                    runOnUiThread {
-                                        if (!isFinishing && !cancelRequested.get()) {
-                                            statusView.text = "Escuchando… guarda silencio cuando termines."
-                                        }
-                                    }
                                 }
                             } else {
                                 speechFrameCount = 0
@@ -333,11 +406,8 @@ class VoiceCaptureActivity : Activity() {
                         val levelPercent = (sqrt(squareSumForBuffer(buffer, count)) / 32768.0 * 100.0).toInt()
                         runOnUiThread {
                             if (!isFinishing && !cancelRequested.get() && !speechFinished) {
-                                statusView.text = if (speechStarted) {
-                                    "Dictando… ${levelPercent}% de señal. Pausa para terminar."
-                                } else {
-                                    "Esperando voz… ${levelPercent}% de señal."
-                                }
+                                visualizer.audioLevel = (levelPercent / 100f).coerceIn(0.02f, 0.9f)
+                                if (!speechStarted) detailView.text = ""
                             }
                         }
                         lastLevelUpdate = now
@@ -361,8 +431,11 @@ class VoiceCaptureActivity : Activity() {
 
                 runOnUiThread {
                     if (!isFinishing && !cancelRequested.get()) {
-                        statusView.text = "Transcribiendo con Whisper en el dispositivo…"
-                        actionButton.text = "Procesando…"
+                        visualizer.setMode(VoiceListeningVisual.Mode.PROCESSING)
+                        statusView.text = "Transcribiendo"
+                        detailView.text = ""
+                        actionButton.text = ""
+                        actionButton.isEnabled = false
                     }
                 }
                 val audio = FloatArray(samples.size) { index -> samples[index] / 32768.0f }
@@ -378,10 +451,16 @@ class VoiceCaptureActivity : Activity() {
                     operationInProgress = false
                     if (isFinishing || cancelRequested.get()) return@runOnUiThread
                     if (transcript.isNotBlank()) {
-                        statusView.text = "Transcripción lista. Insertando en el campo activo…\n\n$transcript"
+                        statusView.setTextColor(Color.rgb(124, 239, 218))
+                        statusView.text = "Listo"
+                        detailView.text = "Insertando en tu texto"
                         val receiver = resultReceiver
                         if (receiver == null) {
-                            statusView.text = "No se pudo devolver la transcripción al teclado.\n\n$transcript"
+                            statusView.text = "No se pudo insertar"
+                            detailView.text = "Vuelve a tocar el micrófono"
+                            actionButton.text = "Cerrar"
+                            actionButton.isEnabled = true
+                            actionButton.setOnClickListener { finish() }
                         } else {
                             receiver.send(RESULT_TRANSCRIPT, Bundle().apply {
                                 putString(EXTRA_TRANSCRIPT, transcript)
@@ -389,9 +468,10 @@ class VoiceCaptureActivity : Activity() {
                             finish()
                         }
                     } else {
-                        statusView.text =
-                            "Audio recibido (pico $peakAmplitude), pero no se reconocieron palabras. Acércate al micrófono y prueba otra vez."
-                        actionButton.text = "Iniciar dictado"
+                        visualizer.setMode(VoiceListeningVisual.Mode.READY)
+                        statusView.text = "No te entendí"
+                        detailView.text = "Acércate al micrófono e inténtalo de nuevo"
+                        actionButton.text = "Intentar de nuevo"
                         actionButton.isEnabled = true
                         actionButton.setOnClickListener { onPrimaryAction() }
                     }
@@ -402,9 +482,12 @@ class VoiceCaptureActivity : Activity() {
                 runOnUiThread {
                     operationInProgress = false
                     if (!isFinishing && !cancelRequested.get()) {
-                        statusView.text = "No se pudo acceder al micrófono. Revisa el permiso."
-                        renderReadyState()
+                        visualizer.setMode(VoiceListeningVisual.Mode.READY)
+                        statusView.text = "Micrófono no disponible"
+                        detailView.text = "Revisa el permiso del dispositivo"
+                        actionButton.text = "Intentar de nuevo"
                         actionButton.isEnabled = true
+                        actionButton.setOnClickListener { onPrimaryAction() }
                     }
                 }
             } catch (error: Exception) {
@@ -417,14 +500,15 @@ class VoiceCaptureActivity : Activity() {
                 runOnUiThread {
                     operationInProgress = false
                     if (!isFinishing && !cancelRequested.get()) {
+                        visualizer.setMode(VoiceListeningVisual.Mode.READY)
                         statusView.text = when (error.message) {
-                            "Grabación demasiado corta" -> "La grabación fue muy corta. Habla al menos un segundo e inténtalo de nuevo."
-                            "No se recibió audio del micrófono" -> "No está llegando audio. Revisa el permiso y el micrófono activo del teléfono."
-                            "No se detectó voz" -> "No detecté voz. Toca el micrófono y habla cuando aparezca Esperando voz."
-                            else -> "Falló la grabación o la transcripción local. Inténtalo de nuevo."
+                            "Grabación demasiado corta", "No se detectó voz" -> "No te escuché"
+                            "No se recibió audio del micrófono" -> "Micrófono no disponible"
+                            else -> "No se pudo transcribir"
                         }
+                        detailView.text = "Toca para intentarlo otra vez"
                         actionButton.isEnabled = true
-                        actionButton.text = "Iniciar dictado"
+                        actionButton.text = "Intentar de nuevo"
                         actionButton.setOnClickListener { onPrimaryAction() }
                     }
                 }
@@ -460,8 +544,11 @@ class VoiceCaptureActivity : Activity() {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
                 startRecordingAndTranscription()
             } else {
-                statusView.text = "Permiso de micrófono denegado."
-                renderReadyState()
+                statusView.text = "Micrófono no disponible"
+                detailView.text = "Activa el permiso para dictar"
+                visualizer.setMode(VoiceListeningVisual.Mode.READY)
+                actionButton.text = "Intentar de nuevo"
+                actionButton.setOnClickListener { onPrimaryAction() }
             }
         }
     }
@@ -503,5 +590,141 @@ class VoiceCaptureActivity : Activity() {
         private const val MODEL_SHA256 = "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7"
         private const val MODEL_URL =
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-tiny-q5_1.bin"
+    }
+}
+
+private class VoiceListeningVisual(context: android.content.Context) : View(context) {
+    enum class Mode { READY, LISTENING, PROCESSING, PREPARING }
+
+    var mode: Mode = Mode.READY
+        private set
+    var audioLevel: Float = 0.08f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+        }
+    var progress: Float? = null
+        set(value) {
+            field = value?.coerceIn(0f, 1f)
+            invalidate()
+        }
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val startTime = System.currentTimeMillis()
+
+    init {
+        contentDescription = "Visualizador animado del dictado de voz"
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    fun setMode(value: Mode) {
+        mode = value
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val scale = minOf(width, height) / 300f
+        if (scale <= 0f) return
+        val elapsed = (System.currentTimeMillis() - startTime) / 1000f
+        val speed = when (mode) {
+            Mode.LISTENING -> 1.0f
+            Mode.PROCESSING -> 0.58f
+            Mode.PREPARING -> 0.42f
+            Mode.READY -> 0.28f
+        }
+        val pulse = (kotlin.math.sin((elapsed * speed * 2.0f).toDouble()).toFloat() + 1f) / 2f
+        val level = if (mode == Mode.LISTENING) audioLevel else 0.16f + pulse * 0.12f
+
+        canvas.save()
+        canvas.translate(width / 2f, height / 2f)
+        canvas.scale(scale, scale)
+
+        paint.style = Paint.Style.FILL
+        paint.shader = RadialGradient(
+            0f, 0f, 145f,
+            intArrayOf(Color.argb(45, 96, 213, 227), Color.argb(22, 138, 118, 255), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.6f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(0f, 0f, 145f, paint)
+        paint.shader = null
+
+        for (ring in 0..3) {
+            val drift = (kotlin.math.sin((elapsed * speed + ring * 0.92f).toDouble()).toFloat() + 1f) / 2f
+            val radius = 69f + ring * 14f + drift * (7f + level * 15f)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = if (ring == 0) 1.5f else 1f
+            paint.color = when (ring % 3) {
+                0 -> Color.argb((34 + drift * 50).toInt(), 107, 236, 216)
+                1 -> Color.argb((26 + drift * 42).toInt(), 130, 159, 255)
+                else -> Color.argb((22 + drift * 32).toInt(), 190, 132, 255)
+            }
+            canvas.drawCircle(0f, 0f, radius, paint)
+        }
+
+        val barCount = 64
+        for (bar in 0 until barCount) {
+            val angle = (Math.PI * 2.0 * bar / barCount).toFloat()
+            val wave = (kotlin.math.sin((elapsed * speed * 3.3f + bar * 0.47f).toDouble()).toFloat() + 1f) / 2f
+            val length = 4f + wave * (7f + level * 34f)
+            val innerRadius = 56f + wave * level * 3f
+            val outerRadius = innerRadius + length
+            val x1 = kotlin.math.cos(angle.toDouble()).toFloat() * innerRadius
+            val y1 = kotlin.math.sin(angle.toDouble()).toFloat() * innerRadius
+            val x2 = kotlin.math.cos(angle.toDouble()).toFloat() * outerRadius
+            val y2 = kotlin.math.sin(angle.toDouble()).toFloat() * outerRadius
+            paint.style = Paint.Style.STROKE
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.strokeWidth = if (bar % 4 == 0) 2.8f else 1.8f
+            paint.color = when (bar % 3) {
+                0 -> Color.argb(165, 105, 237, 216)
+                1 -> Color.argb(132, 126, 168, 255)
+                else -> Color.argb(105, 190, 132, 255)
+            }
+            canvas.drawLine(x1, y1, x2, y2, paint)
+        }
+
+        for (particle in 0 until 26) {
+            val baseAngle = particle * (Math.PI * 2.0 / 26.0)
+            val orbit = 91f + (particle % 5) * 8f +
+                kotlin.math.sin((elapsed * speed * 0.8f + particle).toDouble()).toFloat() * (4f + level * 14f)
+            val angle = baseAngle + elapsed * speed * (if (particle % 2 == 0) 0.12f else -0.09f)
+            val radius = 1.2f + (particle % 3) * 0.65f
+            paint.style = Paint.Style.FILL
+            paint.color = if (particle % 3 == 0) Color.argb(190, 138, 239, 228)
+                else Color.argb(130, 158, 178, 255)
+            canvas.drawCircle(
+                kotlin.math.cos(angle).toFloat() * orbit,
+                kotlin.math.sin(angle).toFloat() * orbit,
+                radius,
+                paint
+            )
+        }
+
+        val coreRadius = 47f + pulse * (3f + level * 9f)
+        paint.style = Paint.Style.FILL
+        paint.shader = RadialGradient(
+            -16f, -18f, coreRadius * 1.8f,
+            intArrayOf(Color.rgb(126, 246, 223), Color.rgb(91, 159, 230), Color.rgb(92, 84, 166)),
+            floatArrayOf(0f, 0.52f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(0f, 0f, coreRadius, paint)
+        paint.shader = null
+        paint.color = Color.argb(45, 255, 255, 255)
+        canvas.drawOval(RectF(-coreRadius * 0.56f, -coreRadius * 0.63f, coreRadius * 0.08f, -coreRadius * 0.34f), paint)
+
+        progress?.let { value ->
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 3f
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.color = Color.argb(45, 215, 226, 255)
+            canvas.drawCircle(0f, 0f, 125f, paint)
+            paint.color = Color.rgb(115, 237, 218)
+            canvas.drawArc(RectF(-125f, -125f, 125f, 125f), -90f, value * 360f, false, paint)
+        }
+
+        canvas.restore()
+        postInvalidateOnAnimation()
     }
 }
