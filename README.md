@@ -2,13 +2,14 @@
 
 A remote-first, privacy-conscious keyboard experiment for Android TV.
 
-Flowy Keyboard is a system input method (IME), navigable with a TV remote. It includes a Spanish (Chile) layout, cursor restoration, one-step clear-all, and opt-in speech dictation through Android's on-device recognizer. Dictation has no cloud fallback. Physical Android TV validation is still pending.
+Flowy Keyboard is a system input method (IME), navigable with a TV remote. It includes a Spanish (Chile) layout, long-press number and symbol alternates, cursor restoration, one-step clear-all, and optional offline speech dictation with a local Whisper model. Dictation audio stays on the device. Physical Android TV validation is still pending.
 
 ## Current status
 
 - [Product brief](docs/PRODUCT_SPEC.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Voice input architecture](docs/VOICE_ARCHITECTURE.md)
+- [Local voice dictation](docs/LOCAL_VOICE_DICTATION.md)
+- [Persistent APK signing setup](docs/PERSISTENT_SIGNING.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Android TV validation checklist](docs/TV_VALIDATION.md)
 - [Architecture decision records](docs/decisions/)
