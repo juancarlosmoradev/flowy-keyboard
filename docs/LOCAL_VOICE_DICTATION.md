@@ -2,7 +2,9 @@
 
 ## Speech pipeline
 
-Flowy records up to 30 seconds of mono, 16 kHz PCM audio after the user grants microphone permission. The audio is converted to float samples and passed to the native Whisper.cpp library through JNI. Whisper transcribes Spanish on the device; only the resulting text is returned to the active input field. Audio is not uploaded and Android's speech-recognition service is not used.
+Tapping the keyboard microphone starts dictation immediately after microphone permission is granted. If the local model is missing, the app downloads it and starts recording as soon as it is ready. Flowy records mono, 16 kHz PCM audio for up to 30 seconds. A lightweight energy-based voice activity detector tracks the noise floor and ends the utterance after one second of trailing silence; it also stops waiting if speech has not started within 12 seconds. The user can still end recording manually or cancel.
+
+The audio is converted to float samples and passed to the native Whisper.cpp library through JNI. Whisper transcribes Spanish on the device; the result is returned and inserted at the active editor selection without an extra confirmation. Audio is not uploaded and Android's speech-recognition service is not used.
 
 ## Model download
 
