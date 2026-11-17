@@ -21,8 +21,8 @@ android {
         applicationId = "dev.flowy.keyboard"
         minSdk = 23
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.6.2"
+        versionCode = 13
+        versionName = "0.6.3"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
