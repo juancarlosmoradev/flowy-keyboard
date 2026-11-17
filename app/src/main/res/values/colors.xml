@@ -1,16 +1,16 @@
 <resources>
-    <color name="flowy_surface">#111216</color>
-    <color name="flowy_surface_top">#17191F</color>
-    <color name="flowy_key">#282A30</color>
-    <color name="flowy_key_border">#282A30</color>
-    <color name="flowy_focus">#30343B</color>
-    <color name="flowy_focus_border">#92F2D8</color>
-    <color name="flowy_pressed">#38434A</color>
-    <color name="flowy_action">#1D1F24</color>
-    <color name="flowy_action_pressed">#2D3338</color>
-    <color name="flowy_accent">#92F2D8</color>
-    <color name="flowy_accent_dark">#56CDAF</color>
-    <color name="flowy_violet">#AFA4FF</color>
-    <color name="flowy_text">#F4F5F6</color>
-    <color name="flowy_muted">#A4A8B0</color>
+    <color name="flowy_surface">#080B14</color>
+    <color name="flowy_surface_top">#101629</color>
+    <color name="flowy_key">#171D2B</color>
+    <color name="flowy_key_border">#35415D</color>
+    <color name="flowy_focus">#1B2840</color>
+    <color name="flowy_focus_border">#00F5FF</color>
+    <color name="flowy_pressed">#32203D</color>
+    <color name="flowy_action">#121827</color>
+    <color name="flowy_action_pressed">#2B1C37</color>
+    <color name="flowy_accent">#00F5FF</color>
+    <color name="flowy_accent_dark">#00B8D4</color>
+    <color name="flowy_violet">#FF2BD6</color>
+    <color name="flowy_text">#F1FAFF</color>
+    <color name="flowy_muted">#A1B5CE</color>
 </resources>
