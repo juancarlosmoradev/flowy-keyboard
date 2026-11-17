@@ -33,10 +33,11 @@ Mark each result as **Pass**, **Fail**, or **Blocked**. Include a short note for
 | Editor action | The return/search key triggers the field's Search editor action. |  |  |
 | Clear all | With text present, **Clear all** empties the field, moves the cursor to the start, and leaves Flowy ready for input. |  |  |
 | Cursor | Place the cursor inside existing text, reopen Flowy, and confirm the selection remains at that position. Repeat in each target app. |  |  |
+| Model download | The model downloads once, progress is shown, and a verified model is available for later use. |  |  |
 | Mic permission | First dictation requests microphone permission; granting it opens the listening state. |  |  |
 | Dictation cancel | Cancel listening before speech is committed; confirm no transcript is inserted. |  |  |
-| Local Spanish model | With a local Spanish model installed, dictation starts; without one, Flowy reports that local dictation is unavailable. |  |  |
-| Offline dictation | After installing the device's local Spanish model, disable Wi-Fi/network and dictate a short Chilean Spanish phrase. Confirm transcription still works. |  |  |
+| Local Spanish model | With the downloaded local model, dictation transcribes Spanish and inserts the result into the active field. |  |  |
+| Offline dictation | After downloading the model, disable Wi-Fi/network and dictate a short Chilean Spanish phrase. Confirm transcription still works. |  |  |
 | Insertion point | Dictate while the cursor is inside existing text; confirm the transcript is inserted at the active cursor and the search is not submitted. |  |  |
 
 For speech checks, use non-sensitive sample phrases, for example: “Busca películas chilenas para ver hoy” and “¿Dónde encuentro configuración de teclado?”. Record the expected phrase and actual transcription. Do not record or upload audio.
@@ -47,7 +48,7 @@ For speech checks, use non-sensitive sample phrases, for example: “Busca pelí
 - Tester:
 - TV model:
 - Android version:
-- Installed input method / speech service:
+- Installed input method:
 - Main commit SHA:
 - GitHub Actions run:
 - Overall result:
