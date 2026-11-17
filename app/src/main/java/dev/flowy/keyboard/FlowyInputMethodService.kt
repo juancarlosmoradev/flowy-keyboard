@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -86,7 +87,8 @@ class FlowyInputMethodService : InputMethodService() {
         ).forEach { (label, weight) ->
             val button = createKeyButton(label)
             if (label == "Clear all") {
-                button.contentDescription = "Clear all text"
+                button.text = ""
+                button.contentDescription = "Borrar todo el texto"
                 button.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
                     getColor(R.color.flowy_text)
                 )
@@ -98,7 +100,8 @@ class FlowyInputMethodService : InputMethodService() {
                 )
             }
             if (label == "Voz") {
-                button.contentDescription = "Dictate by voice"
+                button.text = ""
+                button.contentDescription = "Dictar por voz"
                 button.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
                     getColor(R.color.flowy_text)
                 )
@@ -147,9 +150,12 @@ class FlowyInputMethodService : InputMethodService() {
         }
 
     private fun createKeyButton(label: String) = Button(this).apply {
+        val alternate = LONG_PRESS_ALTERNATES[label]
         text = label
-        textSize = 18f
+        textSize = if (label.length == 1) 18f else 16f
         isAllCaps = false
+        isSingleLine = true
+        ellipsize = TextUtils.TruncateAt.END
         gravity = Gravity.CENTER
         includeFontPadding = false
         setPadding(0, dp(4), 0, dp(4))
@@ -158,8 +164,15 @@ class FlowyInputMethodService : InputMethodService() {
         minWidth = 0
         minHeight = (56 * resources.displayMetrics.density).toInt()
         isFocusable = true
+        contentDescription = if (alternate == null) label else "$label, mantén presionado para $alternate"
         setOnClickListener {
             if (label == "Clear all") clearAllText() else handleKey(label)
+        }
+        isLongClickable = alternate != null
+        setOnLongClickListener {
+            val symbol = alternate ?: return@setOnLongClickListener false
+            currentInputConnection?.commitText(symbol, 1)
+            true
         }
     }
 
@@ -175,6 +188,17 @@ class FlowyInputMethodService : InputMethodService() {
             "Voz" -> startVoiceCapture()
             else -> connection.commitText(label, 1)
         }
+    }
+
+    private companion object {
+        val LONG_PRESS_ALTERNATES = mapOf(
+            "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
+            "y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0",
+            "a" to "@", "s" to "#", "d" to "$", "f" to "%", "g" to "&",
+            "h" to "-", "j" to "+", "k" to "(", "l" to ")", "ñ" to "!",
+            "z" to "?", "x" to ":", "c" to ";", "v" to "/", "b" to "\"",
+            "n" to "'", "m" to "\\", "," to "<", "." to ">"
+        )
     }
 
     private fun clearAllText() {
