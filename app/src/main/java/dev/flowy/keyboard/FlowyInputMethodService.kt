@@ -495,7 +495,7 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
         pendingSpellWord = word
         showCandidates(makeSuggestions(word))
         spellCheckerSession?.let { session ->
-            runCatching { session.getSuggestions(TextInfo(word), 5, false) }
+            runCatching { session.getSuggestions(TextInfo(word), 5) }
         }
     }
 
