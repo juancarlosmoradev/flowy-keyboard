@@ -96,8 +96,12 @@ class FlowyInputMethodService : InputMethodService() {
                 val size = dp(22)
                 val left = (width - size) / 2
                 val top = (height - size) / 2
-                icon.setBounds(left, top, left + size, top + size)
-                icon.draw(canvas)
+                icon.mutate().apply {
+                    setTint(if (isFocused) 0xFF00F5FF.toInt() else 0xFFEAFBFF.toInt())
+                    alpha = 255
+                    setBounds(left, top, left + size, top + size)
+                    draw(canvas)
+                }
             }
             if (symbolHint.isNotEmpty()) {
                 hintPaint.textSize = dp(8).toFloat()
@@ -157,13 +161,13 @@ class FlowyInputMethodService : InputMethodService() {
             button.setBackgroundResource(R.drawable.action_key_background)
             if (label == "Clear all") {
                 button.text = ""
-                button.centerIcon = getDrawable(R.drawable.ic_delete_sweep)
+                button.centerIcon = getDrawable(R.drawable.ic_delete_sweep)?.mutate()
                 button.invalidate()
                 button.contentDescription = "Borrar todo el texto"
             }
             if (label == "Voz") {
                 button.text = ""
-                button.centerIcon = getDrawable(R.drawable.ic_mic)
+                button.centerIcon = getDrawable(R.drawable.ic_mic)?.mutate()
                 button.invalidate()
                 button.contentDescription = "Dictar por voz"
                 button.setOnClickListener { startVoiceCapture() }
@@ -171,7 +175,7 @@ class FlowyInputMethodService : InputMethodService() {
             if (label == "↵") {
                 button.setBackgroundResource(R.drawable.primary_key_background)
                 button.text = ""
-                button.centerIcon = getDrawable(R.drawable.ic_keyboard_return)
+                button.centerIcon = getDrawable(R.drawable.ic_keyboard_return)?.mutate()
                 button.invalidate()
                 button.setTextColor(getColor(R.color.flowy_surface))
                 button.contentDescription = "Enter" 
@@ -302,7 +306,7 @@ class FlowyInputMethodService : InputMethodService() {
         symbolHint = alternates.take(2).joinToString(" ")
         if (label == "⌫") {
             text = ""
-            centerIcon = getDrawable(R.drawable.ic_backspace)
+            centerIcon = getDrawable(R.drawable.ic_backspace)?.mutate()
         }
         setOnClickListener {
             if (label == "Clear all") clearAllText() else handleKey(label)
@@ -312,6 +316,7 @@ class FlowyInputMethodService : InputMethodService() {
         var downY = 0f
         var longPressTriggered = false
         var longPressTask: Runnable? = null
+        var backspaceRepeatTask: Runnable? = null
         val touchSlop = ViewConfiguration.get(this@FlowyInputMethodService).scaledTouchSlop
 
         isLongClickable = false
@@ -323,41 +328,65 @@ class FlowyInputMethodService : InputMethodService() {
                     downX = event.x
                     downY = event.y
                     longPressTriggered = false
-                    if (label.length == 1 && label != "⌫") showKeyPreview(view, label)
-                    if (alternates.isNotEmpty()) {
-                        val task = Runnable {
-                            if (view.isPressed) {
-                                longPressTriggered = true
-                                dismissKeyPreview()
-                                performKeyHaptic(view)
-                                showSymbolPopup(view, alternates)
-                                view.isPressed = false
+                    if (label == "⌫") {
+                        view.isPressed = true
+                        handleKey(label)
+                        val repeatTask = object : Runnable {
+                            override fun run() {
+                                if (view.isPressed) {
+                                    handleKey(label)
+                                    mainHandler.postDelayed(this, 65L)
+                                }
                             }
                         }
-                        longPressTask = task
-                        mainHandler.postDelayed(task, 230L)
+                        backspaceRepeatTask = repeatTask
+                        mainHandler.postDelayed(repeatTask, 350L)
+                        true
+                    } else {
+                        if (label.length == 1) showKeyPreview(view, label)
+                        if (alternates.isNotEmpty()) {
+                            val task = Runnable {
+                                if (view.isPressed) {
+                                    longPressTriggered = true
+                                    dismissKeyPreview()
+                                    performKeyHaptic(view)
+                                    showSymbolPopup(view, alternates)
+                                    view.isPressed = false
+                                }
+                            }
+                            longPressTask = task
+                            mainHandler.postDelayed(task, 230L)
+                        }
+                        false
                     }
-                    false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop) {
                         longPressTask?.let(mainHandler::removeCallbacks)
+                        if (label == "⌫") {
+                            backspaceRepeatTask?.let(mainHandler::removeCallbacks)
+                            view.isPressed = false
+                        }
                         dismissKeyPreview()
                     }
-                    false
+                    label == "⌫"
                 }
                 MotionEvent.ACTION_UP -> {
                     longPressTask?.let(mainHandler::removeCallbacks)
+                    backspaceRepeatTask?.let(mainHandler::removeCallbacks)
+                    if (label == "⌫") view.isPressed = false
                     dismissKeyPreview()
                     if (longPressTriggered) {
                         longPressTriggered = false
                         true
-                    } else false
+                    } else label == "⌫"
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     longPressTask?.let(mainHandler::removeCallbacks)
+                    backspaceRepeatTask?.let(mainHandler::removeCallbacks)
+                    if (label == "⌫") view.isPressed = false
                     dismissKeyPreview()
-                    val consumed = longPressTriggered
+                    val consumed = longPressTriggered || label == "⌫"
                     longPressTriggered = false
                     consumed
                 }
@@ -539,8 +568,16 @@ class FlowyInputMethodService : InputMethodService() {
         val connection = currentInputConnection ?: return
         when (label) {
             "⌫" -> {
-                if (composingWord.isNotEmpty()) updateComposingWord(composingWord.dropLast(1))
-                else connection.deleteSurroundingText(1, 0)
+                val selectedText = connection.getSelectedText(0)
+                if (!selectedText.isNullOrEmpty()) {
+                    connection.commitText("", 1)
+                    composingWord = ""
+                    showCandidates(emptyList())
+                } else if (composingWord.isNotEmpty()) {
+                    updateComposingWord(composingWord.dropLast(1))
+                } else {
+                    connection.deleteSurroundingText(1, 0)
+                }
             }
             "Space" -> {
                 finishComposition()
