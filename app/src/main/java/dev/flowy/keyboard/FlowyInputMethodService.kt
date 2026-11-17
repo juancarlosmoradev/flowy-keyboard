@@ -134,7 +134,12 @@ class FlowyInputMethodService : InputMethodService() {
                         val transcript = resultData?.getString(VoiceCaptureActivity.EXTRA_TRANSCRIPT)
                         if (!transcript.isNullOrBlank()) {
                             val committed = runCatching {
-                                targetConnection.commitText(transcript, 1)
+                                val activeConnection = currentInputConnection
+                                when {
+                                    activeConnection?.commitText(transcript, 1) == true -> true
+                                    activeConnection !== targetConnection -> targetConnection.commitText(transcript, 1)
+                                    else -> false
+                                }
                             }.getOrDefault(false)
                             if (!committed) {
                                 Toast.makeText(
