@@ -4,27 +4,40 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
-import android.speech.ModelDownloadListener
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.RecognitionSupportCallback
-import android.speech.SpeechRecognizer
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.util.Locale
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
 
 class VoiceCaptureActivity : Activity() {
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var statusView: TextView? = null
+    private lateinit var statusView: TextView
+    private lateinit var actionButton: Button
     private var resultReceiver: ResultReceiver? = null
-    private var modelActionButton: Button? = null
-    private var modelDownloadRequested = false
-    private var finished = false
+
+    private val worker = Executors.newSingleThreadExecutor()
+    private val cancelRequested = AtomicBoolean(false)
+    private val stopRequested = AtomicBoolean(false)
+    @Volatile private var activeConnection: HttpURLConnection? = null
+    @Volatile private var activeRecorder: AudioRecord? = null
+    @Volatile private var operationInProgress = false
+
+    private val modelFile: File
+        get() = File(filesDir, MODEL_FILE_NAME)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,236 +47,292 @@ class VoiceCaptureActivity : Activity() {
         } else {
             intent.getParcelableExtra(EXTRA_RESULT_RECEIVER)
         }
-        showStatus("Preparando dictado local…")
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            showStatus("El dictado local requiere Android 12 o posterior.")
-            return
+        createContent()
+        renderReadyState()
+    }
+
+    private fun createContent() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setBackgroundColor(getColor(R.color.flowy_surface))
         }
-        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            showStatus("Este dispositivo no tiene reconocimiento de voz local.")
+        statusView = TextView(this).apply {
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.flowy_text))
+        }
+        actionButton = Button(this).apply {
+            textSize = 18f
+            isSingleLine = true
+            setOnClickListener { onPrimaryAction() }
+        }
+        val cancelButton = Button(this).apply {
+            text = "Cancelar"
+            textSize = 18f
+            setOnClickListener { cancelAndFinish() }
+        }
+        layout.addView(statusView)
+        layout.addView(actionButton)
+        layout.addView(cancelButton)
+        setContentView(layout)
+    }
+
+    private fun renderReadyState() {
+        if (modelFile.isFile && modelFile.length() > MIN_MODEL_BYTES) {
+            statusView.text = "Modelo Whisper local listo. La transcripción se procesa en este dispositivo."
+            actionButton.text = "Iniciar dictado"
+        } else {
+            statusView.text = "Descarga una vez el modelo local de español. Requiere cerca de 32 MB."
+            actionButton.text = "Descargar modelo local"
+        }
+    }
+
+    private fun onPrimaryAction() {
+        if (operationInProgress) return
+        if (!modelFile.isFile || modelFile.length() <= MIN_MODEL_BYTES) {
+            downloadModel()
             return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO)
         } else {
-            prepareRecognizer()
+            startRecordingAndTranscription()
         }
     }
 
-    private fun showStatus(message: String) {
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(32, 32, 32, 32)
-        }
-        statusView = TextView(this).apply {
-            text = message
-            textSize = 22f
-            gravity = Gravity.CENTER
-        }
-        layout.addView(statusView)
-        modelActionButton = Button(this).apply {
-            text = "Descargar modelo local"
-            visibility = android.view.View.GONE
-            setOnClickListener { requestOrCheckModel() }
-        }
-        layout.addView(modelActionButton)
-        layout.addView(Button(this).apply {
-            text = "Cancelar"
-            setOnClickListener { finish() }
-        })
-        setContentView(layout)
-    }
+    private fun downloadModel() {
+        if (operationInProgress) return
+        operationInProgress = true
+        cancelRequested.set(false)
+        actionButton.isEnabled = false
+        statusView.text = "Conectando para descargar el modelo Whisper local…"
+        worker.execute {
+            var connection: HttpURLConnection? = null
+            val temporaryFile = File(filesDir, "$MODEL_FILE_NAME.part")
+            try {
+                connection = (URL(MODEL_URL).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 20_000
+                    readTimeout = 60_000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Accept-Encoding", "identity")
+                    connect()
+                }
+                activeConnection = connection
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw IllegalStateException("HTTP ${connection.responseCode}")
+                }
 
-    private fun recognitionIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-CL")
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-CL")
-        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-    }
-
-    private fun prepareRecognizer() {
-        if (finished) return
-        try {
-            speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).also {
-                it.setRecognitionListener(listener)
-            }
-            checkSpanishSupport()
-        } catch (_: UnsupportedOperationException) {
-            statusView?.text = "Este dispositivo no tiene reconocimiento de voz local."
-        } catch (_: SecurityException) {
-            statusView?.text = "No se pudo acceder al micrófono."
-        }
-    }
-
-    private fun checkSpanishSupport() {
-        if (finished) return
-        if (Build.VERSION.SDK_INT < 33) {
-            startListening()
-            return
-        }
-        modelActionButton?.visibility = android.view.View.GONE
-        statusView?.text = "Revisando español disponible en el dispositivo…"
-        try {
-            speechRecognizer?.checkRecognitionSupport(
-                recognitionIntent(),
-                mainExecutor,
-                object : RecognitionSupportCallback {
-                    override fun onSupportResult(recognitionSupport: android.speech.RecognitionSupport) {
-                        val installed = recognitionSupport.installedOnDeviceLanguages.any(::isSpanish)
-                        val downloadable = recognitionSupport.supportedOnDeviceLanguages.any(::isSpanish)
-                        if (installed) {
-                            modelDownloadRequested = false
-                            startListening()
-                        } else if (downloadable) {
-                            modelDownloadRequested = false
-                            statusView?.text = "Falta el modelo local de español. Puedes descargarlo ahora."
-                            modelActionButton?.apply {
-                                text = "Descargar español sin conexión"
-                                visibility = android.view.View.VISIBLE
+                val totalBytes = connection.contentLength
+                val digest = MessageDigest.getInstance("SHA-256")
+                var downloaded = 0L
+                var lastProgressAt = 0L
+                connection.inputStream.use { input ->
+                    FileOutputStream(temporaryFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (!cancelRequested.get()) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            digest.update(buffer, 0, count)
+                            downloaded += count
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressAt >= 300) {
+                                lastProgressAt = now
+                                val percent = if (totalBytes > 0) {
+                                    (downloaded * 100 / totalBytes).toInt().coerceIn(0, 100)
+                                } else {
+                                    -1
+                                }
+                                runOnUiThread {
+                                    if (!isFinishing && !cancelRequested.get()) {
+                                        statusView.text = if (percent >= 0) {
+                                            "Descargando modelo local: $percent%"
+                                        } else {
+                                            "Descargados ${downloaded / (1024 * 1024)} MB…"
+                                        }
+                                    }
+                                }
                             }
-                        } else {
-                            statusView?.text = "El servicio de voz no ofrece español local. Revisa los idiomas sin conexión en los Ajustes de Android."
                         }
-                    }
-
-                    override fun onError(error: Int) {
-                        statusView?.text = "No se pudo confirmar el modelo local. Revisa los idiomas sin conexión en Ajustes de Android."
                     }
                 }
-            )
-        } catch (_: SecurityException) {
-            statusView?.text = "No se pudo comprobar el modelo local de español."
+                if (cancelRequested.get()) {
+                    temporaryFile.delete()
+                    return@execute
+                }
+                if (temporaryFile.length() <= MIN_MODEL_BYTES) {
+                    throw IllegalStateException("Modelo incompleto")
+                }
+                val actualHash = digest.digest().joinToString("") {
+                    "%02x".format(it.toInt() and 0xff)
+                }
+                if (!actualHash.equals(MODEL_SHA256, ignoreCase = true)) {
+                    throw IllegalStateException("La verificación del modelo falló")
+                }
+                if (modelFile.exists()) modelFile.delete()
+                if (!temporaryFile.renameTo(modelFile)) {
+                    throw IllegalStateException("No se pudo guardar el modelo")
+                }
+                runOnUiThread {
+                    operationInProgress = false
+                    if (!isFinishing && !cancelRequested.get()) {
+                        actionButton.isEnabled = true
+                        renderReadyState()
+                    }
+                }
+            } catch (error: Exception) {
+                temporaryFile.delete()
+                runOnUiThread {
+                    operationInProgress = false
+                    if (!isFinishing && !cancelRequested.get()) {
+                        actionButton.isEnabled = true
+                        actionButton.text = "Reintentar descarga"
+                        statusView.text = "Falló la descarga o verificación del modelo. Revisa la conexión y reintenta."
+                    }
+                }
+            } finally {
+                activeConnection = null
+                connection?.disconnect()
+            }
         }
     }
 
-    private fun isSpanish(languageTag: String) =
-        Locale.forLanguageTag(languageTag).language == "es"
-
-    private fun requestOrCheckModel() {
-        if (Build.VERSION.SDK_INT < 33 || finished) return
-        if (modelDownloadRequested) {
-            checkSpanishSupport()
-            return
+    private fun startRecordingAndTranscription() {
+        if (operationInProgress) return
+        operationInProgress = true
+        cancelRequested.set(false)
+        stopRequested.set(false)
+        actionButton.text = "Detener y transcribir"
+        statusView.text = "Listo para grabar. Habla después de iniciar."
+        actionButton.setOnClickListener {
+            stopRequested.set(true)
+            actionButton.isEnabled = false
+            statusView.text = "Terminando la grabación…"
         }
-        try {
-            modelActionButton?.isEnabled = false
-            statusView?.text = "Solicitando la descarga del modelo local de español…"
-            if (Build.VERSION.SDK_INT >= 34) {
-                speechRecognizer?.triggerModelDownload(
-                    recognitionIntent(),
-                    mainExecutor,
-                    object : ModelDownloadListener {
-                        override fun onProgress(completedPercent: Int) {
-                            statusView?.text = "Descargando modelo local: $completedPercent%"
-                        }
 
-                        override fun onSuccess() {
-                            modelDownloadRequested = false
-                            statusView?.text = "Modelo descargado. Comprobando…"
-                            modelActionButton?.isEnabled = true
-                            checkSpanishSupport()
-                        }
-
-                        override fun onScheduled() {
-                            modelDownloadRequested = true
-                            statusView?.text = "Android dejó la descarga programada. Cuando termine, pulsa Revisar modelo."
-                            modelActionButton?.apply {
-                                text = "Revisar modelo"
-                                isEnabled = true
-                                visibility = android.view.View.VISIBLE
-                            }
-                        }
-
-                        override fun onError(error: Int) {
-                            modelDownloadRequested = false
-                            statusView?.text = "Android no pudo descargar el modelo. Revisa la conexión e inténtalo de nuevo."
-                            modelActionButton?.apply {
-                                text = "Reintentar descarga"
-                                isEnabled = true
-                                visibility = android.view.View.VISIBLE
-                            }
-                        }
-                    }
+        worker.execute {
+            var recorder: AudioRecord? = null
+            try {
+                val minimumBuffer = AudioRecord.getMinBufferSize(
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
                 )
-            } else {
-                speechRecognizer?.triggerModelDownload(recognitionIntent())
-                modelDownloadRequested = true
-                statusView?.text = "Solicitud enviada a Android. Cuando termine, pulsa Revisar modelo."
-                modelActionButton?.apply {
-                    text = "Revisar modelo"
-                    isEnabled = true
-                    visibility = android.view.View.VISIBLE
+                if (minimumBuffer <= 0) throw IllegalStateException("AudioRecord no disponible")
+                recorder = AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    max(minimumBuffer * 2, SAMPLE_RATE)
+                )
+                if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+                    throw IllegalStateException("No se pudo iniciar el micrófono")
+                }
+                activeRecorder = recorder
+                recorder.startRecording()
+                runOnUiThread {
+                    if (!isFinishing && !cancelRequested.get()) {
+                        statusView.text = "Escuchando… toca Detener y transcribir cuando termines."
+                    }
+                }
+
+                val samples = ArrayList<Short>(MAX_SAMPLES)
+                val buffer = ShortArray(READ_BUFFER_SAMPLES)
+                while (!cancelRequested.get() && !stopRequested.get() && samples.size < MAX_SAMPLES) {
+                    val count = recorder.read(buffer, 0, buffer.size)
+                    if (count < 0) throw IllegalStateException("Error leyendo el micrófono: $count")
+                    for (index in 0 until count) {
+                        if (samples.size >= MAX_SAMPLES) break
+                        samples.add(buffer[index])
+                    }
+                }
+                if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                    recorder.stop()
+                }
+                recorder.release()
+                recorder = null
+                activeRecorder = null
+
+                if (cancelRequested.get()) return@execute
+                if (samples.size < MIN_SAMPLES) {
+                    throw IllegalStateException("Grabación demasiado corta")
+                }
+
+                runOnUiThread {
+                    if (!isFinishing && !cancelRequested.get()) {
+                        statusView.text = "Transcribiendo con Whisper en el dispositivo…"
+                        actionButton.text = "Procesando…"
+                    }
+                }
+                val audio = FloatArray(samples.size) { index -> samples[index] / 32768.0f }
+                val native = WhisperNative()
+                val context = native.initialize(modelFile.absolutePath)
+                if (context == 0L) throw IllegalStateException("No se pudo cargar el modelo")
+                val transcript = try {
+                    native.transcribe(context, audio).trim()
+                } finally {
+                    native.release(context)
+                }
+                runOnUiThread {
+                    operationInProgress = false
+                    if (isFinishing || cancelRequested.get()) return@runOnUiThread
+                    if (transcript.isNotBlank()) {
+                        resultReceiver?.send(RESULT_TRANSCRIPT, Bundle().apply {
+                            putString(EXTRA_TRANSCRIPT, transcript)
+                        })
+                        finish()
+                    } else {
+                        statusView.text = "No se reconoció voz. Pulsa para intentarlo de nuevo."
+                        actionButton.text = "Iniciar dictado"
+                        actionButton.isEnabled = true
+                        actionButton.setOnClickListener { onPrimaryAction() }
+                    }
+                }
+            } catch (error: SecurityException) {
+                recorder?.release()
+                activeRecorder = null
+                runOnUiThread {
+                    operationInProgress = false
+                    if (!isFinishing && !cancelRequested.get()) {
+                        statusView.text = "No se pudo acceder al micrófono. Revisa el permiso."
+                        renderReadyState()
+                        actionButton.isEnabled = true
+                    }
+                }
+            } catch (error: Exception) {
+                try {
+                    if (recorder?.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
+                } catch (_: IllegalStateException) {
+                }
+                recorder?.release()
+                activeRecorder = null
+                runOnUiThread {
+                    operationInProgress = false
+                    if (!isFinishing && !cancelRequested.get()) {
+                        statusView.text = when (error.message) {
+                            "Grabación demasiado corta" -> "No se detectó suficiente voz. Inténtalo de nuevo."
+                            else -> "Falló la grabación o la transcripción local. Inténtalo de nuevo."
+                        }
+                        actionButton.isEnabled = true
+                        actionButton.text = "Iniciar dictado"
+                        actionButton.setOnClickListener { onPrimaryAction() }
+                    }
                 }
             }
-        } catch (_: RuntimeException) {
-            modelDownloadRequested = false
-            statusView?.text = "No se pudo solicitar la descarga. Revisa los idiomas sin conexión en Ajustes de Android."
-            modelActionButton?.apply {
-                text = "Reintentar descarga"
-                isEnabled = true
-                visibility = android.view.View.VISIBLE
-            }
         }
     }
 
-    private fun startListening() {
-        if (finished) return
-        statusView?.text = "Escuchando… habla ahora."
-        try {
-            speechRecognizer?.startListening(recognitionIntent())
-        } catch (_: SecurityException) {
-            statusView?.text = "No se pudo acceder al micrófono."
-        }
+    private fun cancelAndFinish() {
+        cancelRequested.set(true)
+        stopRequested.set(true)
+        activeConnection?.disconnect()
+        finish()
     }
 
-    private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            statusView?.text = "Escuchando… habla ahora."
-        }
-
-        override fun onBeginningOfSpeech() = Unit
-        override fun onRmsChanged(rmsdB: Float) = Unit
-        override fun onBufferReceived(buffer: ByteArray?) = Unit
-
-        override fun onEndOfSpeech() {
-            statusView?.text = "Procesando en el dispositivo…"
-        }
-
-        override fun onError(error: Int) {
-            if (!finished) {
-                statusView?.text = when (error) {
-                    SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
-                    SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "El modelo local no reconoce español (Chile)."
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Falta permiso para usar el micrófono."
-                    SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No se detectó voz. Cierra y vuelve a intentarlo."
-                    else -> "Falló el dictado local. Cierra y vuelve a intentarlo."
-                }
-            }
-        }
-
-        override fun onResults(results: Bundle?) {
-            val transcript = results
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()
-                ?.trim()
-            if (!transcript.isNullOrEmpty()) {
-                finished = true
-                resultReceiver?.send(RESULT_TRANSCRIPT, Bundle().apply {
-                    putString(EXTRA_TRANSCRIPT, transcript)
-                })
-                finish()
-            } else {
-                statusView?.text = "No se reconoció texto. Cierra y vuelve a intentarlo."
-            }
-        }
-
-        override fun onPartialResults(partialResults: Bundle?) = Unit
-        override fun onEvent(eventType: Int, params: Bundle?) = Unit
-    }
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -273,17 +342,19 @@ class VoiceCaptureActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_AUDIO) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                prepareRecognizer()
+                startRecordingAndTranscription()
             } else {
-                statusView?.text = "Permiso de micrófono denegado."
+                statusView.text = "Permiso de micrófono denegado."
+                renderReadyState()
             }
         }
     }
 
     override fun onDestroy() {
-        speechRecognizer?.cancel()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
+        cancelRequested.set(true)
+        stopRequested.set(true)
+        activeConnection?.disconnect()
+        worker.shutdownNow()
         super.onDestroy()
     }
 
@@ -292,5 +363,15 @@ class VoiceCaptureActivity : Activity() {
         const val EXTRA_TRANSCRIPT = "dev.flowy.keyboard.TRANSCRIPT"
         const val RESULT_TRANSCRIPT = 10
         private const val REQUEST_AUDIO = 41
+        private const val SAMPLE_RATE = 16_000
+        private const val READ_BUFFER_SAMPLES = 4_096
+        private const val MAX_RECORDING_SECONDS = 30
+        private const val MAX_SAMPLES = SAMPLE_RATE * MAX_RECORDING_SECONDS
+        private const val MIN_SAMPLES = SAMPLE_RATE / 2
+        private const val MODEL_FILE_NAME = "whisper-tiny-q5_1-es.ggml"
+        private const val MIN_MODEL_BYTES = 30L * 1024L * 1024L
+        private const val MODEL_SHA256 = "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7"
+        private const val MODEL_URL =
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-tiny-q5_1.bin"
     }
 }
