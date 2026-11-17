@@ -72,7 +72,7 @@ class FlowyInputMethodService : InputMethodService() {
     override fun onCreateInputView(): View {
         val root = FrameLayout(this).apply {
             background = getDrawable(R.drawable.keyboard_background)
-            minimumHeight = dp(270)
+            minimumHeight = dp(350)
             clipChildren = false
             clipToPadding = false
         }
@@ -114,18 +114,35 @@ class FlowyInputMethodService : InputMethodService() {
             val button = createKeyButton(label)
             button.setBackgroundResource(R.drawable.action_key_background)
             if (label == "Clear all") {
-                button.text = "⌫"
+                button.text = ""
+                button.setCompoundDrawablesWithIntrinsicBounds(
+                    getDrawable(R.drawable.ic_delete_sweep), null, null, null
+                )
                 button.contentDescription = "Borrar todo el texto"
-                button.textSize = 20f
+            }
+            if (label == "⌫") {
+                button.text = ""
+                button.setCompoundDrawablesWithIntrinsicBounds(
+                    getDrawable(R.drawable.ic_backspace), null, null, null
+                )
+                button.contentDescription = "Borrar carácter"
             }
             if (label == "Voz") {
-                button.text = "Mic"
+                button.text = ""
+                button.setCompoundDrawablesWithIntrinsicBounds(
+                    getDrawable(R.drawable.ic_mic), null, null, null
+                )
                 button.contentDescription = "Dictar por voz"
                 button.setOnClickListener { startVoiceCapture() }
             }
             if (label == "↵") {
                 button.setBackgroundResource(R.drawable.primary_key_background)
+                button.text = ""
+                button.setCompoundDrawablesWithIntrinsicBounds(
+                    getDrawable(R.drawable.ic_keyboard_return), null, null, null
+                )
                 button.setTextColor(getColor(R.color.flowy_surface))
+                button.contentDescription = "Enter" 
             }
             actionRow.addView(button, keyLayoutParams(weight))
         }
@@ -139,7 +156,7 @@ class FlowyInputMethodService : InputMethodService() {
         ))
         root.addView(overlay, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            dp(270),
+            ViewGroup.LayoutParams.MATCH_PARENT,
             Gravity.TOP
         ))
         root.post { firstKey?.requestFocus() }
