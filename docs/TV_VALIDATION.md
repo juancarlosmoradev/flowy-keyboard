@@ -25,6 +25,8 @@ Mark each result as **Pass**, **Fail**, or **Blocked**. Include a short note for
 | Installation | APK installs and Flowy can be enabled and selected as the active input method. |  |  |
 | Remote focus | D-pad navigation reaches every key; the focused key is clearly visible at TV viewing distance. |  |  |
 | Layout | Spanish (Chile) layout shows `ñ`, comma, and period in usable positions. |  |  |
+| Long press | Long-press keys insert their documented number or symbol alternate; a normal press still inserts the letter. |  |  |
+| Button labels | Action keys stay within their buttons at phone and TV widths. |  |  |
 | Text entry | Letters and punctuation appear in the test field. |  |  |
 | Deletion | Backspace deletes one character at the current cursor. |  |  |
 | Space | Space inserts a single space. |  |  |
