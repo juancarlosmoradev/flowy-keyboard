@@ -1,0 +1,21 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/flowy_accent_dark" />
+            <corners android:radius="15dp" />
+        </shape>
+    </item>
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/flowy_accent" />
+            <stroke android:width="2dp" android:color="@color/flowy_text" />
+            <corners android:radius="15dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/flowy_accent" />
+            <corners android:radius="15dp" />
+        </shape>
+    </item>
+</selector>
