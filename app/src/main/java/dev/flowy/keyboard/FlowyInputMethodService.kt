@@ -3,22 +3,28 @@ package dev.flowy.keyboard
 import android.content.Intent
 import android.inputmethodservice.InputMethodService
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.TextView
 import android.widget.Toast
 
 class FlowyInputMethodService : InputMethodService() {
     private var lastSelectionStart = -1
     private var lastSelectionEnd = -1
+    private var keyPreview: PopupWindow? = null
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
@@ -61,8 +67,8 @@ class FlowyInputMethodService : InputMethodService() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundColor(getColor(R.color.flowy_surface))
+            setPadding(dp(10), dp(9), dp(10), dp(10))
+            background = getDrawable(R.drawable.keyboard_background)
         }
         val rows = listOf(
             listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -77,46 +83,38 @@ class FlowyInputMethodService : InputMethodService() {
                 if (firstKey == null) firstKey = button
                 row.addView(button, keyLayoutParams())
             }
-            root.addView(row)
+            root.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
         }
         val actionRow = createRow()
         listOf(
-            "Clear all" to 1.5f,
-            "Space" to 4f,
-            "Voz" to 1.5f,
-            "↵" to 1.5f
+            "Clear all" to 1.35f,
+            "Space" to 4.2f,
+            "Voz" to 1.35f,
+            "↵" to 1.35f
         ).forEach { (label, weight) ->
             val button = createKeyButton(label)
+            button.setBackgroundResource(R.drawable.action_key_background)
             if (label == "Clear all") {
-                button.text = ""
+                button.text = "⌫"
                 button.contentDescription = "Borrar todo el texto"
-                button.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.flowy_text)
-                )
-                button.setCompoundDrawablesWithIntrinsicBounds(
-                    android.R.drawable.ic_menu_delete,
-                    0,
-                    0,
-                    0
-                )
+                button.textSize = 20f
             }
             if (label == "Voz") {
-                button.text = ""
+                button.text = "Mic"
                 button.contentDescription = "Dictar por voz"
-                button.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.flowy_text)
-                )
-                button.setCompoundDrawablesWithIntrinsicBounds(
-                    android.R.drawable.ic_btn_speak_now,
-                    0,
-                    0,
-                    0
-                )
                 button.setOnClickListener { startVoiceCapture() }
+            }
+            if (label == "↵") {
+                button.setBackgroundResource(R.drawable.primary_key_background)
+                button.setTextColor(getColor(R.color.flowy_surface))
             }
             actionRow.addView(button, keyLayoutParams(weight))
         }
-        root.addView(actionRow)
+        root.addView(actionRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
         root.post { firstKey?.requestFocus() }
         return root
     }
@@ -161,25 +159,26 @@ class FlowyInputMethodService : InputMethodService() {
     }
 
     private fun keyLayoutParams(weight: Float = 1f) =
-        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight).apply {
-            setMargins(dp(3), dp(3), dp(3), dp(3))
+        LinearLayout.LayoutParams(0, dp(54), weight).apply {
+            setMargins(dp(3), dp(4), dp(3), dp(4))
         }
 
     private fun createKeyButton(label: String) = Button(this).apply {
         val alternate = LONG_PRESS_ALTERNATES[label]
         text = label
-        textSize = if (label.length == 1) 18f else 16f
+        textSize = if (label.length == 1) 19f else 14f
         isAllCaps = false
         isSingleLine = true
         ellipsize = TextUtils.TruncateAt.END
         gravity = Gravity.CENTER
         includeFontPadding = false
-        setPadding(0, dp(4), 0, dp(4))
+        setPadding(dp(2), dp(3), dp(2), dp(3))
         setTextColor(getColor(R.color.flowy_text))
         background = getDrawable(R.drawable.key_background)
         minWidth = 0
-        minHeight = (56 * resources.displayMetrics.density).toInt()
+        minHeight = dp(48)
         isFocusable = true
+        stateListAnimator = null
         contentDescription = if (alternate == null) label else "$label, mantén presionado para $alternate"
         setOnClickListener {
             if (label == "Clear all") clearAllText() else handleKey(label)
@@ -190,6 +189,58 @@ class FlowyInputMethodService : InputMethodService() {
             currentInputConnection?.commitText(symbol, 1)
             true
         }
+        setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    performKeyHaptic(view)
+                    if (label.length == 1 && label != "⌫") showKeyPreview(view, label)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dismissKeyPreview()
+            }
+            false
+        }
+    }
+
+    private fun performKeyHaptic(view: View) {
+        val feedback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            HapticFeedbackConstants.KEYBOARD_TAP
+        } else {
+            HapticFeedbackConstants.VIRTUAL_KEY
+        }
+        view.performHapticFeedback(feedback)
+    }
+
+    private fun showKeyPreview(anchor: View, label: String) {
+        dismissKeyPreview()
+        val preview = TextView(this).apply {
+            text = label
+            textSize = 26f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setTextColor(getColor(R.color.flowy_text))
+            background = getDrawable(R.drawable.key_preview_background)
+            elevation = dp(8).toFloat()
+        }
+        val popup = PopupWindow(preview, dp(56), dp(58), false).apply {
+            isClippingEnabled = false
+            elevation = dp(8).toFloat()
+        }
+        val position = IntArray(2)
+        anchor.getLocationOnScreen(position)
+        val x = position[0] + anchor.width / 2 - dp(28)
+        val y = position[1] - dp(62)
+        popup.showAtLocation(window?.window?.decorView ?: anchor, Gravity.TOP or Gravity.LEFT, x, y)
+        keyPreview = popup
+    }
+
+    private fun dismissKeyPreview() {
+        keyPreview?.dismiss()
+        keyPreview = null
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        dismissKeyPreview()
+        super.onFinishInputView(finishingInput)
     }
 
     private fun handleKey(label: String) {
