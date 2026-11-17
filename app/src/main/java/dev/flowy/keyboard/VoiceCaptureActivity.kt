@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
+import android.speech.ModelDownloadListener
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.RecognitionSupportCallback
@@ -21,6 +22,8 @@ class VoiceCaptureActivity : Activity() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var statusView: TextView? = null
     private var resultReceiver: ResultReceiver? = null
+    private var modelActionButton: Button? = null
+    private var modelDownloadRequested = false
     private var finished = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +62,12 @@ class VoiceCaptureActivity : Activity() {
             gravity = Gravity.CENTER
         }
         layout.addView(statusView)
+        modelActionButton = Button(this).apply {
+            text = "Descargar modelo local"
+            visibility = android.view.View.GONE
+            setOnClickListener { requestOrCheckModel() }
+        }
+        layout.addView(modelActionButton)
         layout.addView(Button(this).apply {
             text = "Cancelar"
             setOnClickListener { finish() }
@@ -81,32 +90,122 @@ class VoiceCaptureActivity : Activity() {
             speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).also {
                 it.setRecognitionListener(listener)
             }
-            if (Build.VERSION.SDK_INT >= 33) {
-                statusView?.text = "Revisando español disponible en el dispositivo…"
-                speechRecognizer?.checkRecognitionSupport(
-                    recognitionIntent(),
-                    mainExecutor,
-                    object : RecognitionSupportCallback {
-                        override fun onSupportResult(recognitionSupport: android.speech.RecognitionSupport) {
-                            val hasSpanish = recognitionSupport.installedOnDeviceLanguages.any {
-                                Locale.forLanguageTag(it).language == "es"
-                            }
-                            if (hasSpanish) startListening()
-                            else statusView?.text = "No hay un modelo local de español instalado."
-                        }
-
-                        override fun onError(error: Int) {
-                            statusView?.text = "No se pudo confirmar el modelo local de español."
-                        }
-                    }
-                )
-            } else {
-                startListening()
-            }
+            checkSpanishSupport()
         } catch (_: UnsupportedOperationException) {
             statusView?.text = "Este dispositivo no tiene reconocimiento de voz local."
         } catch (_: SecurityException) {
             statusView?.text = "No se pudo acceder al micrófono."
+        }
+    }
+
+    private fun checkSpanishSupport() {
+        if (finished) return
+        if (Build.VERSION.SDK_INT < 33) {
+            startListening()
+            return
+        }
+        modelActionButton?.visibility = android.view.View.GONE
+        statusView?.text = "Revisando español disponible en el dispositivo…"
+        try {
+            speechRecognizer?.checkRecognitionSupport(
+                recognitionIntent(),
+                mainExecutor,
+                object : RecognitionSupportCallback {
+                    override fun onSupportResult(recognitionSupport: android.speech.RecognitionSupport) {
+                        val installed = recognitionSupport.installedOnDeviceLanguages.any(::isSpanish)
+                        val downloadable = recognitionSupport.supportedOnDeviceLanguages.any(::isSpanish)
+                        if (installed) {
+                            modelDownloadRequested = false
+                            startListening()
+                        } else if (downloadable) {
+                            modelDownloadRequested = false
+                            statusView?.text = "Falta el modelo local de español. Puedes descargarlo ahora."
+                            modelActionButton?.apply {
+                                text = "Descargar español sin conexión"
+                                visibility = android.view.View.VISIBLE
+                            }
+                        } else {
+                            statusView?.text = "El servicio de voz no ofrece español local. Revisa los idiomas sin conexión en los Ajustes de Android."
+                        }
+                    }
+
+                    override fun onError(error: Int) {
+                        statusView?.text = "No se pudo confirmar el modelo local. Revisa los idiomas sin conexión en Ajustes de Android."
+                    }
+                }
+            )
+        } catch (_: SecurityException) {
+            statusView?.text = "No se pudo comprobar el modelo local de español."
+        }
+    }
+
+    private fun isSpanish(languageTag: String) =
+        Locale.forLanguageTag(languageTag).language == "es"
+
+    private fun requestOrCheckModel() {
+        if (Build.VERSION.SDK_INT < 33 || finished) return
+        if (modelDownloadRequested) {
+            checkSpanishSupport()
+            return
+        }
+        try {
+            modelActionButton?.isEnabled = false
+            statusView?.text = "Solicitando la descarga del modelo local de español…"
+            if (Build.VERSION.SDK_INT >= 34) {
+                speechRecognizer?.triggerModelDownload(
+                    recognitionIntent(),
+                    mainExecutor,
+                    object : ModelDownloadListener {
+                        override fun onProgress(completedPercent: Int) {
+                            statusView?.text = "Descargando modelo local: $completedPercent%"
+                        }
+
+                        override fun onSuccess() {
+                            modelDownloadRequested = false
+                            statusView?.text = "Modelo descargado. Comprobando…"
+                            modelActionButton?.isEnabled = true
+                            checkSpanishSupport()
+                        }
+
+                        override fun onScheduled() {
+                            modelDownloadRequested = true
+                            statusView?.text = "Android dejó la descarga programada. Cuando termine, pulsa Revisar modelo."
+                            modelActionButton?.apply {
+                                text = "Revisar modelo"
+                                isEnabled = true
+                                visibility = android.view.View.VISIBLE
+                            }
+                        }
+
+                        override fun onError(error: Int) {
+                            modelDownloadRequested = false
+                            statusView?.text = "Android no pudo descargar el modelo. Revisa la conexión e inténtalo de nuevo."
+                            modelActionButton?.apply {
+                                text = "Reintentar descarga"
+                                isEnabled = true
+                                visibility = android.view.View.VISIBLE
+                            }
+                        }
+                    }
+                )
+            } else {
+                speechRecognizer?.triggerModelDownload(recognitionIntent())
+                modelDownloadRequested = true
+                statusView?.text = "Solicitud enviada a Android. Cuando termine, pulsa Revisar modelo."
+                modelActionButton?.apply {
+                    text = "Revisar modelo"
+                    isEnabled = true
+                    visibility = android.view.View.VISIBLE
+                }
+            }
+        } catch (_: RuntimeException) {
+            modelDownloadRequested = false
+            statusView?.text = "No se pudo solicitar la descarga. Revisa los idiomas sin conexión en Ajustes de Android."
+            modelActionButton?.apply {
+                text = "Reintentar descarga"
+                isEnabled = true
+                visibility = android.view.View.VISIBLE
+            }
         }
     }
 

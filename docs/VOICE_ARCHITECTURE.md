@@ -16,9 +16,9 @@ The first version uses free Android on-device speech recognition. It does not in
 
 ## First implementation
 
-Flowy uses Android's on-device SpeechRecognizer on Android 12 or later. On Android 13 and later it checks whether an installed on-device Spanish language model is available before listening. It requests the locale es-CL and does not use the general recognizer as a fallback. On Android 12, language support is confirmed by attempting the local recognizer.
+Flowy uses Android's on-device SpeechRecognizer on Android 12 or later. On Android 13 and later it checks whether an installed on-device Spanish language model is available. If the system reports Spanish as supported but not installed, the user can explicitly request a local model download and recheck its status. On Android 12, language support is confirmed by attempting the local recognizer. Flowy requests the locale es-CL and never falls back to the general recognizer or cloud processing.
 
-If there is no local recognizer or Spanish model, Flowy reports that dictation is unavailable on the device. If local recognition proves inadequate on the target TV, evaluate whisper.cpp as an optional local model; measure model size, download, accuracy, latency, and memory first.
+If the system speech service does not offer a local Spanish model, Flowy explains that offline language availability must be checked in Android Settings. Model download is never started without the user's tap. If local recognition proves inadequate on the target TV, evaluate whisper.cpp as an optional local model; measure model size, download, accuracy, latency, and memory first.
 
 The app does not store audio. Downloading a local model may use network data once; recognition itself runs on the TV.
 
