@@ -1,6 +1,11 @@
 package dev.flowy.keyboard
 
+import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.inputmethodservice.InputMethodService
 import android.os.Bundle
 import android.os.Build
@@ -98,6 +103,31 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
         super.onDestroy()
     }
 
+    private inner class FlowyKeyButton(context: Context) : Button(context) {
+        var centerIcon: Drawable? = null
+        var symbolHint: String = ""
+        private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFA4A8B0.toInt()
+            textAlign = Paint.Align.RIGHT
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            centerIcon?.let { icon ->
+                val size = dp(22)
+                val left = (width - size) / 2
+                val top = (height - size) / 2
+                icon.setBounds(left, top, left + size, top + size)
+                icon.draw(canvas)
+            }
+            if (symbolHint.isNotEmpty()) {
+                hintPaint.textSize = dp(8).toFloat()
+                canvas.drawText(symbolHint, width - dp(6).toFloat(), dp(11).toFloat(), hintPaint)
+            }
+        }
+    }
+
     override fun onUpdateSelection(
         oldSelStart: Int,
         oldSelEnd: Int,
@@ -140,6 +170,7 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             setPadding(dp(10), dp(9), dp(10), dp(10))
         }
         val rows = listOf(
+            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
             listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
             listOf("a", "s", "d", "f", "g", "h", "j", "k", "l", "ñ"),
             listOf("z", "x", "c", "v", "b", "n", "m", ",", ".", "⌫")
@@ -167,32 +198,22 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             button.setBackgroundResource(R.drawable.action_key_background)
             if (label == "Clear all") {
                 button.text = ""
-                button.setCompoundDrawablesWithIntrinsicBounds(
-                    getDrawable(R.drawable.ic_delete_sweep), null, null, null
-                )
+                button.centerIcon = getDrawable(R.drawable.ic_delete_sweep)
+                button.invalidate()
                 button.contentDescription = "Borrar todo el texto"
-            }
-            if (label == "⌫") {
-                button.text = ""
-                button.setCompoundDrawablesWithIntrinsicBounds(
-                    getDrawable(R.drawable.ic_backspace), null, null, null
-                )
-                button.contentDescription = "Borrar carácter"
             }
             if (label == "Voz") {
                 button.text = ""
-                button.setCompoundDrawablesWithIntrinsicBounds(
-                    getDrawable(R.drawable.ic_mic), null, null, null
-                )
+                button.centerIcon = getDrawable(R.drawable.ic_mic)
+                button.invalidate()
                 button.contentDescription = "Dictar por voz"
                 button.setOnClickListener { startVoiceCapture() }
             }
             if (label == "↵") {
                 button.setBackgroundResource(R.drawable.primary_key_background)
                 button.text = ""
-                button.setCompoundDrawablesWithIntrinsicBounds(
-                    getDrawable(R.drawable.ic_keyboard_return), null, null, null
-                )
+                button.centerIcon = getDrawable(R.drawable.ic_keyboard_return)
+                button.invalidate()
                 button.setTextColor(getColor(R.color.flowy_surface))
                 button.contentDescription = "Enter" 
             }
@@ -231,7 +252,12 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             })
             putExtra(VoiceCaptureActivity.EXTRA_START_IMMEDIATELY, true)
         }
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (error: RuntimeException) {
+            android.util.Log.e("FlowyVoice", "No se pudo abrir el dictado", error)
+            Toast.makeText(this, "No se pudo abrir el dictado.", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun deliverTranscriptWhenEditorResumes(
@@ -295,7 +321,7 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             setMargins(dp(3), dp(4), dp(3), dp(4))
         }
 
-    private fun createKeyButton(label: String) = Button(this).apply {
+    private fun createKeyButton(label: String) = FlowyKeyButton(this).apply {
         val alternates = LONG_PRESS_ALTERNATES[label].orEmpty()
         text = label
         textSize = if (label.length == 1) 19f else 14f
@@ -311,7 +337,14 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
         minHeight = dp(48)
         isFocusable = true
         stateListAnimator = null
-        contentDescription = if (alternates.isEmpty()) label else "$label, mantén presionado para ver ${alternates.size} alternativas"
+        contentDescription = if (label == "⌫") "Borrar carácter"
+            else if (alternates.isEmpty()) label
+            else "$label, mantén presionado para ver ${alternates.size} alternativas"
+        symbolHint = alternates.take(2).joinToString(" ")
+        if (label == "⌫") {
+            text = ""
+            centerIcon = getDrawable(R.drawable.ic_backspace)
+        }
         setOnClickListener {
             if (label == "Clear all") clearAllText() else handleKey(label)
         }

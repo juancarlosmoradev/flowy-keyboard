@@ -17,12 +17,14 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.ResultReceiver
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -60,14 +62,20 @@ class VoiceCaptureActivity : Activity() {
         } else {
             intent.getParcelableExtra(EXTRA_RESULT_RECEIVER)
         }
-        createContent()
-        renderReadyState()
-        if (intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, false)) {
-            if (modelFile.isFile && modelFile.length() > MIN_MODEL_BYTES) {
-                requestPermissionOrStart()
-            } else {
-                downloadModel()
+        try {
+            createContent()
+            renderReadyState()
+            if (intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, false)) {
+                if (modelFile.isFile && modelFile.length() > MIN_MODEL_BYTES) {
+                    requestPermissionOrStart()
+                } else {
+                    downloadModel()
+                }
             }
+        } catch (error: RuntimeException) {
+            Log.e("FlowyVoice", "No se pudo iniciar la pantalla de dictado", error)
+            Toast.makeText(this, "No se pudo abrir el dictado. Intenta otra vez.", Toast.LENGTH_LONG).show()
+            finish()
         }
     }
 
@@ -662,7 +670,7 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             canvas.drawCircle(0f, 0f, radius, paint)
         }
 
-        val barCount = 84
+        val barCount = 72
         for (bar in 0 until barCount) {
             val angle = (Math.PI * 2.0 * bar / barCount).toFloat()
             val wave = (kotlin.math.sin((elapsed * speed * 3.3f + bar * 0.47f).toDouble()).toFloat() + 1f) / 2f
@@ -684,8 +692,8 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             canvas.drawLine(x1, y1, x2, y2, paint)
         }
 
-        for (particle in 0 until 96) {
-            val baseAngle = particle * (Math.PI * 2.0 / 96.0) +
+        for (particle in 0 until 60) {
+            val baseAngle = particle * (Math.PI * 2.0 / 60.0) +
                 kotlin.math.sin(particle * 9.7).toDouble() * 0.11
             val orbit = 72f + (particle % 12) * 7.1f +
                 kotlin.math.sin((elapsed * speed * 0.9f + particle * 1.73f).toDouble()).toFloat() *
