@@ -15,6 +15,7 @@ import android.os.ResultReceiver
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.View
@@ -391,6 +392,39 @@ class FlowyInputMethodService : InputMethodService() {
                     consumed
                 }
                 else -> false
+            }
+        }
+        setOnKeyListener { focusedView, keyCode, event ->
+            val isConfirmKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                keyCode == KeyEvent.KEYCODE_ENTER
+            if (label != "⌫" || !isConfirmKey) {
+                false
+            } else when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (event.repeatCount == 0) {
+                        focusedView.isPressed = true
+                        performKeyHaptic(focusedView)
+                        handleKey(label)
+                        val repeatTask = object : Runnable {
+                            override fun run() {
+                                if (focusedView.isPressed) {
+                                    handleKey(label)
+                                    mainHandler.postDelayed(this, 65L)
+                                }
+                            }
+                        }
+                        backspaceRepeatTask = repeatTask
+                        mainHandler.postDelayed(repeatTask, 350L)
+                    }
+                    true
+                }
+                KeyEvent.ACTION_UP -> {
+                    backspaceRepeatTask?.let(mainHandler::removeCallbacks)
+                    backspaceRepeatTask = null
+                    focusedView.isPressed = false
+                    true
+                }
+                else -> true
             }
         }
     }
