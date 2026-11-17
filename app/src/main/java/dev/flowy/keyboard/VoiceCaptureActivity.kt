@@ -90,7 +90,7 @@ class VoiceCaptureActivity : Activity() {
             setTextColor(Color.rgb(106, 236, 215))
         })
         header.addView(TextView(this).apply {
-            text = "  FLOWY VOICE"
+            text = "  flowy voice"
             textSize = 11f
             letterSpacing = 0.2f
             typeface = Typeface.DEFAULT_BOLD
@@ -662,7 +662,7 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             canvas.drawCircle(0f, 0f, radius, paint)
         }
 
-        val barCount = 64
+        val barCount = 84
         for (bar in 0 until barCount) {
             val angle = (Math.PI * 2.0 * bar / barCount).toFloat()
             val wave = (kotlin.math.sin((elapsed * speed * 3.3f + bar * 0.47f).toDouble()).toFloat() + 1f) / 2f
@@ -684,21 +684,28 @@ private class VoiceListeningVisual(context: android.content.Context) : View(cont
             canvas.drawLine(x1, y1, x2, y2, paint)
         }
 
-        for (particle in 0 until 26) {
-            val baseAngle = particle * (Math.PI * 2.0 / 26.0)
-            val orbit = 91f + (particle % 5) * 8f +
-                kotlin.math.sin((elapsed * speed * 0.8f + particle).toDouble()).toFloat() * (4f + level * 14f)
-            val angle = baseAngle + elapsed * speed * (if (particle % 2 == 0) 0.12f else -0.09f)
-            val radius = 1.2f + (particle % 3) * 0.65f
+        for (particle in 0 until 96) {
+            val baseAngle = particle * (Math.PI * 2.0 / 96.0) +
+                kotlin.math.sin(particle * 9.7).toDouble() * 0.11
+            val orbit = 72f + (particle % 12) * 7.1f +
+                kotlin.math.sin((elapsed * speed * 0.9f + particle * 1.73f).toDouble()).toFloat() *
+                (3f + level * 16f)
+            val angle = baseAngle + elapsed * speed * (if (particle % 2 == 0) 0.17f else -0.13f)
+            val x = kotlin.math.cos(angle).toFloat() * orbit
+            val y = kotlin.math.sin(angle).toFloat() * orbit
+            val twinkle = (kotlin.math.sin((elapsed * speed * 2f + particle * 0.81f).toDouble()).toFloat() + 1f) / 2f
+            val radius = 0.8f + (particle % 5) * 0.36f
             paint.style = Paint.Style.FILL
-            paint.color = if (particle % 3 == 0) Color.argb(190, 138, 239, 228)
-                else Color.argb(130, 158, 178, 255)
-            canvas.drawCircle(
-                kotlin.math.cos(angle).toFloat() * orbit,
-                kotlin.math.sin(angle).toFloat() * orbit,
-                radius,
-                paint
-            )
+            paint.color = if (particle % 3 == 0) Color.argb((105 + twinkle * 140).toInt(), 146, 250, 226)
+                else Color.argb((72 + twinkle * 130).toInt(), 154, 184, 255)
+            canvas.drawCircle(x, y, radius, paint)
+            if (particle % 7 == 0) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeCap = Paint.Cap.ROUND
+                paint.strokeWidth = 0.8f
+                paint.color = Color.argb((35 + twinkle * 95).toInt(), 180, 235, 255)
+                canvas.drawLine(x - radius * 2.6f, y + radius * 2.6f, x + radius * 2.6f, y - radius * 2.6f, paint)
+            }
         }
 
         val coreRadius = 47f + pulse * (3f + level * 9f)
