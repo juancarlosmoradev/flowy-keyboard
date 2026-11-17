@@ -16,16 +16,19 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
 
 class FlowyInputMethodService : InputMethodService() {
     private var lastSelectionStart = -1
     private var lastSelectionEnd = -1
-    private var keyPreview: PopupWindow? = null
-    private var symbolPopup: PopupWindow? = null
+    private var keyboardRoot: FrameLayout? = null
+    private var popupLayer: FrameLayout? = null
+    private var keyPreviewView: TextView? = null
+    private var symbolPanel: LinearLayout? = null
+    private var symbolAnchor: View? = null
     private var pendingTranscript: String? = null
     private var transcriptDeliveryId = 0
 
@@ -67,11 +70,22 @@ class FlowyInputMethodService : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
-        val root = LinearLayout(this).apply {
+        val root = FrameLayout(this).apply {
+            background = getDrawable(R.drawable.keyboard_background)
+            minimumHeight = dp(270)
+            clipChildren = false
+            clipToPadding = false
+        }
+        keyboardRoot = root
+        val overlay = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+        popupLayer = overlay
+        val keyboard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(10), dp(9), dp(10), dp(10))
-            background = getDrawable(R.drawable.keyboard_background)
         }
         val rows = listOf(
             listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -86,7 +100,7 @@ class FlowyInputMethodService : InputMethodService() {
                 if (firstKey == null) firstKey = button
                 row.addView(button, keyLayoutParams())
             }
-            root.addView(row, LinearLayout.LayoutParams(
+            keyboard.addView(row, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
@@ -115,8 +129,18 @@ class FlowyInputMethodService : InputMethodService() {
             }
             actionRow.addView(button, keyLayoutParams(weight))
         }
-        root.addView(actionRow, LinearLayout.LayoutParams(
+        keyboard.addView(actionRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(keyboard, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM
+        ))
+        root.addView(overlay, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(270),
+            Gravity.TOP
         ))
         root.post { firstKey?.requestFocus() }
         return root
@@ -236,8 +260,9 @@ class FlowyInputMethodService : InputMethodService() {
         setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    dismissSymbolPopup()
                     performKeyHaptic(view)
-                    if (label.length == 1) showKeyPreview(view, label)
+                    if (label.length == 1 && label != "⌫") showKeyPreview(view, label)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dismissKeyPreview()
             }
@@ -256,31 +281,35 @@ class FlowyInputMethodService : InputMethodService() {
 
     private fun showKeyPreview(anchor: View, label: String) {
         dismissKeyPreview()
+        val root = keyboardRoot ?: return
         val preview = TextView(this).apply {
             text = label
-            textSize = 26f
+            textSize = 28f
             gravity = Gravity.CENTER
             includeFontPadding = false
             setTextColor(getColor(R.color.flowy_text))
             background = getDrawable(R.drawable.key_preview_background)
-            elevation = dp(8).toFloat()
+            elevation = dp(14).toFloat()
+            alpha = 0f
+            scaleX = 0.72f
+            scaleY = 0.72f
         }
-        val popup = PopupWindow(preview, dp(56), dp(58), false).apply {
-            isClippingEnabled = false
-            elevation = dp(8).toFloat()
-        }
-        popup.showAsDropDown(
-            anchor,
-            0,
-            -anchor.height - dp(62),
-            Gravity.CENTER_HORIZONTAL
-        )
-        keyPreview = popup
+        val popupWidth = dp(60)
+        val popupHeight = dp(62)
+        val position = overlayPosition(anchor, popupWidth, popupHeight, dp(5))
+        val layer = popupLayer ?: return
+        layer.addView(preview, FrameLayout.LayoutParams(popupWidth, popupHeight).apply {
+            leftMargin = position.first
+            topMargin = position.second
+        })
+        keyPreviewView = preview
+        preview.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(120).start()
     }
 
     private fun showSymbolPopup(anchor: View, symbols: List<String>) {
         dismissKeyPreview()
         dismissSymbolPopup()
+        val root = keyboardRoot ?: return
         val itemWidth = dp(44)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -288,6 +317,9 @@ class FlowyInputMethodService : InputMethodService() {
             setPadding(dp(6), dp(6), dp(6), dp(6))
             background = getDrawable(R.drawable.symbol_popup_background)
             elevation = dp(12).toFloat()
+            alpha = 0f
+            scaleX = 0.94f
+            scaleY = 0.94f
         }
         symbols.forEach { symbol ->
             val option = TextView(this).apply {
@@ -301,8 +333,11 @@ class FlowyInputMethodService : InputMethodService() {
                 isFocusableInTouchMode = true
                 contentDescription = symbol
                 setOnClickListener {
+                    performKeyHaptic(this)
                     currentInputConnection?.commitText(symbol, 1)
+                    val anchorToRestore = symbolAnchor
                     dismissSymbolPopup()
+                    anchorToRestore?.requestFocus()
                 }
             }
             panel.addView(option, LinearLayout.LayoutParams(itemWidth, dp(48)).apply {
@@ -310,29 +345,49 @@ class FlowyInputMethodService : InputMethodService() {
             })
         }
         val popupWidth = (itemWidth + dp(4)) * symbols.size + dp(12)
-        symbolPopup = PopupWindow(panel, popupWidth, dp(60), false).apply {
-            isClippingEnabled = false
-            isOutsideTouchable = true
-            isFocusable = true
-            elevation = dp(12).toFloat()
-        }
-        symbolPopup?.showAsDropDown(
-            anchor,
-            0,
-            -anchor.height - dp(64),
-            Gravity.CENTER_HORIZONTAL
-        )
+        val popupHeight = dp(60)
+        val position = overlayPosition(anchor, popupWidth, popupHeight, dp(7))
+        val layer = popupLayer ?: return
+        layer.addView(panel, FrameLayout.LayoutParams(popupWidth, popupHeight).apply {
+            leftMargin = position.first
+            topMargin = position.second
+        })
+        symbolPanel = panel
+        symbolAnchor = anchor
         panel.getChildAt(0)?.requestFocus()
+        panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(140).start()
+    }
+
+    private fun overlayPosition(anchor: View, width: Int, height: Int, gap: Int): Pair<Int, Int> {
+        val root = keyboardRoot ?: return 0 to 0
+        val rootLocation = IntArray(2)
+        val anchorLocation = IntArray(2)
+        root.getLocationInWindow(rootLocation)
+        anchor.getLocationInWindow(anchorLocation)
+        val centeredX = anchorLocation[0] - rootLocation[0] + anchor.width / 2 - width / 2
+        val x = centeredX.coerceIn(dp(4), (root.width - width - dp(4)).coerceAtLeast(dp(4)))
+        val aboveY = anchorLocation[1] - rootLocation[1] - height - gap
+        val maxY = (root.height - height - dp(4)).coerceAtLeast(dp(4))
+        val y = aboveY.coerceIn(dp(4), maxY)
+        return x to y
     }
 
     private fun dismissSymbolPopup() {
-        symbolPopup?.dismiss()
-        symbolPopup = null
+        val panel = symbolPanel ?: return
+        panel.isEnabled = false
+        panel.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).setDuration(90)
+            .withEndAction { (panel.parent as? ViewGroup)?.removeView(panel) }
+            .start()
+        symbolPanel = null
+        symbolAnchor = null
     }
 
     private fun dismissKeyPreview() {
-        keyPreview?.dismiss()
-        keyPreview = null
+        val preview = keyPreviewView ?: return
+        preview.animate().alpha(0f).scaleX(0.78f).scaleY(0.78f).setDuration(70)
+            .withEndAction { (preview.parent as? ViewGroup)?.removeView(preview) }
+            .start()
+        keyPreviewView = null
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
