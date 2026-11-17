@@ -11,6 +11,7 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -18,26 +19,83 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
+import android.view.textservice.SpellCheckerSession
+import android.view.textservice.SentenceSuggestionsInfo
+import android.view.textservice.SuggestionsInfo
+import android.view.textservice.TextInfo
+import android.view.textservice.TextServicesManager
+import java.util.Locale
+import kotlin.math.abs
 
-class FlowyInputMethodService : InputMethodService() {
+class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellCheckerSessionListener {
     private var lastSelectionStart = -1
     private var lastSelectionEnd = -1
     private var keyboardRoot: FrameLayout? = null
-    private var popupLayer: FrameLayout? = null
-    private var keyPreviewView: TextView? = null
-    private var symbolPanel: LinearLayout? = null
-    private var symbolAnchor: View? = null
+    private var keyPreviewPopup: PopupWindow? = null
+    private var symbolPopup: PopupWindow? = null
+    private var candidateView: LinearLayout? = null
+    private var spellCheckerSession: SpellCheckerSession? = null
+    private var pendingSpellWord: String? = null
+    private var composingWord = ""
     private var pendingTranscript: String? = null
     private var transcriptDeliveryId = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    override fun onCreate() {
+        super.onCreate()
+        spellCheckerSession = runCatching {
+            getSystemService(TextServicesManager::class.java)
+                ?.newSpellCheckerSession(null, Locale("es", "CL"), this, true)
+        }.getOrNull()
+    }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         if (!restarting) {
             lastSelectionStart = -1
             lastSelectionEnd = -1
+            composingWord = ""
+            pendingSpellWord = null
+            setCandidatesViewShown(false)
+            showCandidates(emptyList())
         }
+    }
+
+    override fun onCreateCandidatesView(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            minimumHeight = dp(40)
+            background = getDrawable(R.drawable.keyboard_background)
+            candidateView = this
+        }
+    }
+
+    override fun onGetSuggestions(results: Array<SuggestionsInfo>) {
+        val queriedWord = pendingSpellWord ?: return
+        val corrections = mutableListOf<String>()
+        results.forEach { info ->
+            for (index in 0 until info.suggestionsCount) {
+                info.getSuggestionAt(index)?.let(corrections::add)
+            }
+        }
+        mainHandler.post {
+            if (composingWord.equals(queriedWord, ignoreCase = true)) {
+                showCandidates(makeSuggestions(composingWord, corrections))
+            }
+        }
+    }
+
+    override fun onGetSentenceSuggestions(results: Array<SentenceSuggestionsInfo>) = Unit
+
+    override fun onDestroy() {
+        spellCheckerSession?.close()
+        spellCheckerSession = null
+        super.onDestroy()
     }
 
     override fun onUpdateSelection(
@@ -72,16 +130,10 @@ class FlowyInputMethodService : InputMethodService() {
     override fun onCreateInputView(): View {
         val root = FrameLayout(this).apply {
             background = getDrawable(R.drawable.keyboard_background)
-            minimumHeight = dp(350)
             clipChildren = false
             clipToPadding = false
         }
         keyboardRoot = root
-        val overlay = FrameLayout(this).apply {
-            clipChildren = false
-            clipToPadding = false
-        }
-        popupLayer = overlay
         val keyboard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -153,11 +205,6 @@ class FlowyInputMethodService : InputMethodService() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.BOTTOM
-        ))
-        root.addView(overlay, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            Gravity.TOP
         ))
         root.post { firstKey?.requestFocus() }
         return root
@@ -268,22 +315,62 @@ class FlowyInputMethodService : InputMethodService() {
         setOnClickListener {
             if (label == "Clear all") clearAllText() else handleKey(label)
         }
-        isLongClickable = alternates.isNotEmpty()
-        setOnLongClickListener {
-            if (alternates.isEmpty()) return@setOnLongClickListener false
-            showSymbolPopup(it, alternates)
-            true
-        }
+
+        var downX = 0f
+        var downY = 0f
+        var longPressTriggered = false
+        var longPressTask: Runnable? = null
+        val touchSlop = ViewConfiguration.get(this@FlowyInputMethodService).scaledTouchSlop
+
+        isLongClickable = false
         setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     dismissSymbolPopup()
                     performKeyHaptic(view)
+                    downX = event.x
+                    downY = event.y
+                    longPressTriggered = false
                     if (label.length == 1 && label != "⌫") showKeyPreview(view, label)
+                    if (alternates.isNotEmpty()) {
+                        val task = Runnable {
+                            if (view.isPressed) {
+                                longPressTriggered = true
+                                dismissKeyPreview()
+                                performKeyHaptic(view)
+                                showSymbolPopup(view, alternates)
+                                view.isPressed = false
+                            }
+                        }
+                        longPressTask = task
+                        mainHandler.postDelayed(task, 230L)
+                    }
+                    false
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dismissKeyPreview()
+                MotionEvent.ACTION_MOVE -> {
+                    if (abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop) {
+                        longPressTask?.let(mainHandler::removeCallbacks)
+                        dismissKeyPreview()
+                    }
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    longPressTask?.let(mainHandler::removeCallbacks)
+                    dismissKeyPreview()
+                    if (longPressTriggered) {
+                        longPressTriggered = false
+                        true
+                    } else false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    longPressTask?.let(mainHandler::removeCallbacks)
+                    dismissKeyPreview()
+                    val consumed = longPressTriggered
+                    longPressTriggered = false
+                    consumed
+                }
+                else -> false
             }
-            false
         }
     }
 
@@ -296,47 +383,52 @@ class FlowyInputMethodService : InputMethodService() {
         view.performHapticFeedback(feedback)
     }
 
+    private fun popupWindow(content: View, width: Int, height: Int, touchable: Boolean): PopupWindow {
+        return PopupWindow(content, width, height, false).apply {
+            isFocusable = false
+            isTouchable = touchable
+            isOutsideTouchable = false
+            inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
+            elevation = dp(18).toFloat()
+        }
+    }
+
+    private fun popupXOffset(anchor: View, popupWidth: Int): Int {
+        val location = IntArray(2)
+        anchor.getLocationOnScreen(location)
+        val screenWidth = resources.displayMetrics.widthPixels
+        val desiredLeft = (location[0] + anchor.width / 2 - popupWidth / 2)
+            .coerceIn(dp(4), (screenWidth - popupWidth - dp(4)).coerceAtLeast(dp(4)))
+        return desiredLeft - location[0]
+    }
+
     private fun showKeyPreview(anchor: View, label: String) {
         dismissKeyPreview()
-        val root = keyboardRoot ?: return
+        val height = dp(58)
         val preview = TextView(this).apply {
             text = label
-            textSize = 28f
+            textSize = 27f
             gravity = Gravity.CENTER
             includeFontPadding = false
             setTextColor(getColor(R.color.flowy_text))
             background = getDrawable(R.drawable.key_preview_background)
-            elevation = dp(14).toFloat()
-            alpha = 0f
-            scaleX = 0.72f
-            scaleY = 0.72f
         }
-        val popupWidth = dp(60)
-        val popupHeight = dp(62)
-        val position = overlayPosition(anchor, popupWidth, popupHeight, dp(5))
-        val layer = popupLayer ?: return
-        layer.addView(preview, FrameLayout.LayoutParams(popupWidth, popupHeight).apply {
-            leftMargin = position.first
-            topMargin = position.second
-        })
-        keyPreviewView = preview
-        preview.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(120).start()
+        val popup = popupWindow(preview, dp(56), height, touchable = false)
+        keyPreviewPopup = popup
+        popup.showAsDropDown(anchor, popupXOffset(anchor, dp(56)), -anchor.height - height - dp(5), Gravity.START)
+        preview.alpha = 0f
+        preview.animate().alpha(1f).setDuration(65).start()
     }
 
     private fun showSymbolPopup(anchor: View, symbols: List<String>) {
         dismissKeyPreview()
         dismissSymbolPopup()
-        val root = keyboardRoot ?: return
-        val itemWidth = dp(44)
+        val itemWidth = dp(43)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setPadding(dp(5), dp(5), dp(5), dp(5))
             background = getDrawable(R.drawable.symbol_popup_background)
-            elevation = dp(12).toFloat()
-            alpha = 0f
-            scaleX = 0.94f
-            scaleY = 0.94f
         }
         symbols.forEach { symbol ->
             val option = TextView(this).apply {
@@ -346,88 +438,150 @@ class FlowyInputMethodService : InputMethodService() {
                 includeFontPadding = false
                 setTextColor(getColor(R.color.flowy_text))
                 background = getDrawable(R.drawable.key_background)
-                isFocusable = true
-                isFocusableInTouchMode = true
-                contentDescription = symbol
+                isClickable = true
+                contentDescription = "Insertar $symbol"
                 setOnClickListener {
                     performKeyHaptic(this)
+                    finishComposition()
                     currentInputConnection?.commitText(symbol, 1)
-                    val anchorToRestore = symbolAnchor
                     dismissSymbolPopup()
-                    anchorToRestore?.requestFocus()
                 }
             }
-            panel.addView(option, LinearLayout.LayoutParams(itemWidth, dp(48)).apply {
+            panel.addView(option, LinearLayout.LayoutParams(itemWidth, dp(46)).apply {
                 setMargins(dp(2), 0, dp(2), 0)
             })
         }
-        val popupWidth = (itemWidth + dp(4)) * symbols.size + dp(12)
-        val popupHeight = dp(60)
-        val position = overlayPosition(anchor, popupWidth, popupHeight, dp(7))
-        val layer = popupLayer ?: return
-        layer.addView(panel, FrameLayout.LayoutParams(popupWidth, popupHeight).apply {
-            leftMargin = position.first
-            topMargin = position.second
-        })
-        symbolPanel = panel
-        symbolAnchor = anchor
-        panel.getChildAt(0)?.requestFocus()
-        panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(140).start()
-    }
-
-    private fun overlayPosition(anchor: View, width: Int, height: Int, gap: Int): Pair<Int, Int> {
-        val root = keyboardRoot ?: return 0 to 0
-        val rootLocation = IntArray(2)
-        val anchorLocation = IntArray(2)
-        root.getLocationInWindow(rootLocation)
-        anchor.getLocationInWindow(anchorLocation)
-        val centeredX = anchorLocation[0] - rootLocation[0] + anchor.width / 2 - width / 2
-        val x = centeredX.coerceIn(dp(4), (root.width - width - dp(4)).coerceAtLeast(dp(4)))
-        val aboveY = anchorLocation[1] - rootLocation[1] - height - gap
-        val maxY = (root.height - height - dp(4)).coerceAtLeast(dp(4))
-        val y = aboveY.coerceIn(dp(4), maxY)
-        return x to y
+        val popupWidth = (itemWidth + dp(4)) * symbols.size + dp(10)
+        val popupHeight = dp(56)
+        val popup = popupWindow(panel, popupWidth, popupHeight, touchable = true)
+        symbolPopup = popup
+        popup.showAsDropDown(
+            anchor,
+            popupXOffset(anchor, popupWidth),
+            -anchor.height - popupHeight - dp(6),
+            Gravity.START
+        )
+        panel.alpha = 0f
+        panel.animate().alpha(1f).setDuration(55).start()
     }
 
     private fun dismissSymbolPopup() {
-        val panel = symbolPanel ?: return
-        panel.isEnabled = false
-        panel.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).setDuration(90)
-            .withEndAction { (panel.parent as? ViewGroup)?.removeView(panel) }
-            .start()
-        symbolPanel = null
-        symbolAnchor = null
+        symbolPopup?.dismiss()
+        symbolPopup = null
     }
 
     private fun dismissKeyPreview() {
-        val preview = keyPreviewView ?: return
-        preview.animate().alpha(0f).scaleX(0.78f).scaleY(0.78f).setDuration(70)
-            .withEndAction { (preview.parent as? ViewGroup)?.removeView(preview) }
-            .start()
-        keyPreviewView = null
+        keyPreviewPopup?.dismiss()
+        keyPreviewPopup = null
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         dismissKeyPreview()
         dismissSymbolPopup()
+        finishComposition()
         super.onFinishInputView(finishingInput)
+    }
+
+    private fun updateComposingWord(word: String) {
+        composingWord = word
+        val connection = currentInputConnection ?: return
+        if (word.isEmpty()) {
+            connection.setComposingText("", 1)
+            connection.finishComposingText()
+            showCandidates(emptyList())
+            return
+        }
+        connection.setComposingText(word, 1)
+        pendingSpellWord = word
+        showCandidates(makeSuggestions(word))
+        spellCheckerSession?.let { session ->
+            runCatching { session.getSuggestions(TextInfo(word), 5, false) }
+        }
+    }
+
+    private fun makeSuggestions(word: String, corrections: List<String> = emptyList()): List<String> {
+        if (word.isBlank()) return emptyList()
+        val prefix = word.lowercase(Locale("es", "CL"))
+        val local = COMMON_WORDS.asSequence()
+            .filter { it.startsWith(prefix) && !it.equals(prefix, ignoreCase = true) }
+            .take(5)
+            .toList()
+        return (listOf(word) + corrections + local)
+            .distinctBy { it.lowercase(Locale.ROOT) }
+            .take(3)
+    }
+
+    private fun showCandidates(words: List<String>) {
+        if (words.isEmpty()) {
+            setCandidatesViewShown(false)
+            candidateView?.removeAllViews()
+            return
+        }
+        setCandidatesViewShown(true)
+        val strip = candidateView ?: return
+        strip.removeAllViews()
+        words.take(3).forEachIndexed { index, word ->
+            val candidate = TextView(this).apply {
+                text = word
+                textSize = 15f
+                gravity = Gravity.CENTER
+                isSingleLine = true
+                setTextColor(getColor(if (index == 1) R.color.flowy_accent else R.color.flowy_text))
+                setOnClickListener { commitCandidate(word) }
+            }
+            strip.addView(candidate, LinearLayout.LayoutParams(0, dp(38), 1f))
+        }
+        setCandidatesViewShown(true)
+    }
+
+    private fun commitCandidate(word: String) {
+        val connection = currentInputConnection ?: return
+        connection.commitText("$word ", 1)
+        composingWord = ""
+        pendingSpellWord = null
+        showCandidates(emptyList())
+    }
+
+    private fun finishComposition() {
+        if (composingWord.isNotEmpty()) currentInputConnection?.finishComposingText()
+        composingWord = ""
+        pendingSpellWord = null
+        showCandidates(emptyList())
     }
 
     private fun handleKey(label: String) {
         val connection = currentInputConnection ?: return
         when (label) {
-            "⌫" -> connection.deleteSurroundingText(1, 0)
-            "Space" -> connection.commitText(" ", 1)
-            "↵" -> connection.performEditorAction(
-                currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
-                    ?: EditorInfo.IME_ACTION_DONE
-            )
-            "Voz" -> startVoiceCapture()
-            else -> connection.commitText(label, 1)
+            "⌫" -> {
+                if (composingWord.isNotEmpty()) updateComposingWord(composingWord.dropLast(1))
+                else connection.deleteSurroundingText(1, 0)
+            }
+            "Space" -> {
+                finishComposition()
+                connection.commitText(" ", 1)
+            }
+            "↵" -> {
+                finishComposition()
+                connection.performEditorAction(
+                    currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
+                        ?: EditorInfo.IME_ACTION_DONE
+                )
+            }
+            "Voz" -> {
+                finishComposition()
+                startVoiceCapture()
+            }
+            else -> if (label.length == 1 && label[0].isLetter()) {
+                updateComposingWord(composingWord + label)
+            } else {
+                finishComposition()
+                connection.commitText(label, 1)
+            }
         }
     }
 
     private companion object {
+        val COMMON_WORDS = listOf("ahora", "algo", "algunos", "alguien", "allí", "aquí", "así", "aunque", "además", "antes", "año", "años", "abajo", "bien", "bueno", "buenos", "cada", "casi", "casa", "caso", "como", "con", "cómo", "cosas", "cuando", "cuál", "cualquier", "cuanto", "cuánto", "curso", "dado", "dar", "de", "debe", "decir", "dejar", "desde", "día", "días", "donde", "dos", "durante", "e", "el", "ella", "ellos", "en", "entre", "era", "eres", "es", "esa", "esas", "ese", "eso", "esta", "estaba", "están", "este", "esto", "estos", "fin", "forma", "fue", "fuera", "fueron", "gente", "gracias", "gran", "grande", "ha", "haber", "había", "hace", "hacer", "hacia", "han", "hasta", "hay", "he", "hecho", "hola", "hoy", "iba", "igual", "incluso", "ir", "la", "las", "le", "les", "lo", "los", "luego", "lugar", "más", "menos", "mi", "mientras", "mismo", "mis", "mucha", "mucho", "muy", "nada", "nadie", "necesario", "ni", "no", "nos", "nosotros", "nuestra", "nuestro", "nunca", "o", "otra", "otro", "para", "parece", "parte", "pasar", "pero", "poco", "podemos", "poder", "podrá", "podrían", "podría", "puede", "pueden", "pues", "que", "qué", "quien", "quién", "quiero", "quizá", "saber", "será", "ser", "si", "sí", "sido", "siempre", "sin", "sobre", "soy", "su", "sus", "tal", "también", "tan", "tanto", "te", "tener", "tengo", "tenemos", "tiempo", "tiene", "toda", "todas", "todo", "todos", "tomar", "trabajo", "tras", "tu", "tú", "un", "una", "unas", "uno", "unos", "usted", "ustedes", "va", "vamos", "van", "varias", "veces", "ver", "verdad", "vez", "vida", "ya", "yo")
         val LONG_PRESS_ALTERNATES = mapOf(
             "q" to listOf("1", "!", "¡", "¿"), "w" to listOf("2", "@", "€"),
             "e" to listOf("3", "é", "è", "ê", "ë"), "r" to listOf("4", "#", "£"),
@@ -447,9 +601,11 @@ class FlowyInputMethodService : InputMethodService() {
         )
     }
 
+
     private fun clearAllText() {
         val connection = currentInputConnection ?: return
         val extracted = connection.getExtractedText(ExtractedTextRequest(), 0)
+        finishComposition()
         if (extracted != null) {
             val start = extracted.startOffset.coerceAtLeast(0)
             val end = start + extracted.text.length

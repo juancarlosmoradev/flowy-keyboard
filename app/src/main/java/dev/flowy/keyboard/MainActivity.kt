@@ -19,10 +19,10 @@ class MainActivity : Activity() {
 
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(22), dp(24), dp(28))
+            setPadding(dp(22), dp(18), dp(22), dp(24))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.rgb(21, 25, 42), Color.rgb(11, 14, 24))
+                intArrayOf(Color.rgb(17, 18, 22), Color.rgb(17, 18, 22))
             )
         }
         val brandRow = LinearLayout(this).apply {
@@ -45,16 +45,16 @@ class MainActivity : Activity() {
             setPadding(dp(12), 0, 0, 0)
         }
         brandText.addView(TextView(this).apply {
-            text = "FLOWY"
-            textSize = 14f
-            letterSpacing = 0.18f
+            text = "flowy"
+            textSize = 17f
+            letterSpacing = 0.02f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.rgb(245, 247, 255))
         })
         brandText.addView(TextView(this).apply {
-            text = "TECLADO PERSONAL"
-            textSize = 9f
-            letterSpacing = 0.14f
+            text = "VOICE + KEYBOARD"
+            textSize = 10f
+            letterSpacing = 0.10f
             setTextColor(Color.rgb(139, 151, 176))
         })
         brandRow.addView(brandText)
@@ -62,17 +62,17 @@ class MainActivity : Activity() {
 
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(64), 0, dp(34))
+            setPadding(0, dp(40), 0, dp(28))
         }
         hero.addView(TextView(this).apply {
-            text = "Tu voz.\nTus palabras."
+            text = "Escribe.\nSin fricción."
             textSize = 34f
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
             letterSpacing = -0.02f
             setTextColor(Color.rgb(247, 248, 255))
         })
         hero.addView(TextView(this).apply {
-            text = "Escribe con Flowy o dicta sin salir de tu espacio."
+            text = "Teclado predictivo y dictado directo."
             textSize = 15f
             setTextColor(Color.rgb(157, 168, 190))
             setPadding(0, dp(12), 0, 0)
@@ -80,7 +80,7 @@ class MainActivity : Activity() {
         page.addView(hero)
 
         page.addView(TextView(this).apply {
-            text = "CAMPO DE PRUEBA"
+            text = "PRUÉBALO"
             textSize = 10f
             letterSpacing = 0.16f
             typeface = Typeface.DEFAULT_BOLD
@@ -92,13 +92,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(17), dp(15), dp(17), dp(14))
             background = GradientDrawable().apply {
-                setColor(Color.rgb(27, 33, 51))
-                cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), Color.rgb(56, 68, 91))
+                setColor(Color.rgb(30, 32, 37))
+                cornerRadius = dp(15).toFloat()
+                setStroke(dp(1), Color.rgb(55, 58, 64))
             }
         }
         inputCard.addView(TextView(this).apply {
-            text = "PRUÉBALO AQUÍ"
+            text = "CAMPO DE TEXTO"
             textSize = 9f
             letterSpacing = 0.14f
             typeface = Typeface.DEFAULT_BOLD
@@ -121,7 +121,7 @@ class MainActivity : Activity() {
         ))
 
         page.addView(TextView(this).apply {
-            text = "Toca el campo para activar el teclado. Mantén una tecla para ver sus alternativas."
+            text = "Mantén una tecla para abrir sus símbolos."
             textSize = 12f
             setTextColor(Color.rgb(130, 143, 168))
             setPadding(dp(3), dp(14), dp(3), 0)
