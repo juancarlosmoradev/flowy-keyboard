@@ -29,7 +29,6 @@ class VoiceCaptureActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var actionButton: Button
     private var resultReceiver: ResultReceiver? = null
-    private var pendingTranscript: String? = null
 
     private val worker = Executors.newSingleThreadExecutor()
     private val cancelRequested = AtomicBoolean(false)
@@ -51,6 +50,13 @@ class VoiceCaptureActivity : Activity() {
         }
         createContent()
         renderReadyState()
+        if (intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, false)) {
+            if (modelFile.isFile && modelFile.length() > MIN_MODEL_BYTES) {
+                requestPermissionOrStart()
+            } else {
+                downloadModel()
+            }
+        }
     }
 
     private fun createContent() {
@@ -93,14 +99,14 @@ class VoiceCaptureActivity : Activity() {
 
     private fun onPrimaryAction() {
         if (operationInProgress) return
-        if (pendingTranscript != null) {
-            deliverTranscript()
-            return
-        }
         if (!modelFile.isFile || modelFile.length() <= MIN_MODEL_BYTES) {
             downloadModel()
             return
         }
+        requestPermissionOrStart()
+    }
+
+    private fun requestPermissionOrStart() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO)
         } else {
@@ -185,7 +191,11 @@ class VoiceCaptureActivity : Activity() {
                     operationInProgress = false
                     if (!isFinishing && !cancelRequested.get()) {
                         actionButton.isEnabled = true
-                        renderReadyState()
+                        if (intent.getBooleanExtra(EXTRA_START_IMMEDIATELY, false)) {
+                            requestPermissionOrStart()
+                        } else {
+                            renderReadyState()
+                        }
                     }
                 }
             } catch (error: Exception) {
@@ -210,12 +220,12 @@ class VoiceCaptureActivity : Activity() {
         operationInProgress = true
         cancelRequested.set(false)
         stopRequested.set(false)
-        actionButton.text = "Detener y transcribir"
-        statusView.text = "Iniciando micrófono…"
+        actionButton.text = "Terminar ahora"
+        statusView.text = "Iniciando dictado…"
         actionButton.setOnClickListener {
             stopRequested.set(true)
             actionButton.isEnabled = false
-            statusView.text = "Terminando la grabación…"
+            statusView.text = "Terminando y transcribiendo…"
         }
 
         worker.execute {
@@ -241,46 +251,96 @@ class VoiceCaptureActivity : Activity() {
                 recorder.startRecording()
                 runOnUiThread {
                     if (!isFinishing && !cancelRequested.get()) {
-                        statusView.text = "Escuchando… toca Detener y transcribir cuando termines."
+                        statusView.text = "Habla ahora. El dictado termina al detectar una pausa."
                     }
                 }
 
                 val samples = ArrayList<Short>(MAX_SAMPLES)
                 val buffer = ShortArray(READ_BUFFER_SAMPLES)
                 var peakAmplitude = 0
-                var windowPeak = 0
-                var windowSquareSum = 0.0
-                var windowSampleCount = 0
+                var noiseFloor = INITIAL_NOISE_RMS
+                var speechStarted = false
+                var speechFrameCount = 0
+                var speechSampleCount = 0
+                var trailingSilenceSamples = 0
+                var speechFinished = false
                 var lastLevelUpdate = 0L
-                while (!cancelRequested.get() && !stopRequested.get() && samples.size < MAX_SAMPLES) {
+                while (!cancelRequested.get() && !stopRequested.get() &&
+                    samples.size < MAX_SAMPLES && !speechFinished
+                ) {
                     val count = recorder.read(buffer, 0, buffer.size)
                     if (count < 0) throw IllegalStateException("Error leyendo el micrófono: $count")
-                    for (index in 0 until count) {
-                        if (samples.size >= MAX_SAMPLES) break
-                        val sample = buffer[index].toInt()
-                        val magnitude = kotlin.math.abs(sample)
-                        peakAmplitude = max(peakAmplitude, magnitude)
-                        windowPeak = max(windowPeak, magnitude)
-                        windowSquareSum += sample.toDouble() * sample.toDouble()
-                        windowSampleCount++
-                        samples.add(buffer[index])
+                    var frameStart = 0
+                    while (frameStart < count && samples.size < MAX_SAMPLES) {
+                        val frameEnd = minOf(frameStart + VAD_FRAME_SAMPLES, count)
+                        var squareSum = 0.0
+                        var framePeak = 0
+                        for (index in frameStart until frameEnd) {
+                            val sample = buffer[index].toInt()
+                            val magnitude = kotlin.math.abs(sample)
+                            peakAmplitude = max(peakAmplitude, magnitude)
+                            framePeak = max(framePeak, magnitude)
+                            squareSum += sample.toDouble() * sample.toDouble()
+                            samples.add(buffer[index])
+                        }
+                        val frameSamples = frameEnd - frameStart
+                        val frameRms = sqrt(squareSum / frameSamples)
+                        if (!speechStarted) {
+                            noiseFloor = noiseFloor * NOISE_FLOOR_SMOOTHING +
+                                frameRms * (1.0 - NOISE_FLOOR_SMOOTHING)
+                            val speechThreshold = max(
+                                MIN_VOICE_RMS,
+                                minOf(noiseFloor, MAX_NOISE_REFERENCE_RMS) * START_NOISE_MULTIPLIER
+                            )
+                            if (frameRms >= speechThreshold && framePeak >= MIN_SIGNAL_PEAK) {
+                                speechFrameCount++
+                                if (speechFrameCount >= REQUIRED_SPEECH_FRAMES) {
+                                    speechStarted = true
+                                    runOnUiThread {
+                                        if (!isFinishing && !cancelRequested.get()) {
+                                            statusView.text = "Escuchando… guarda silencio cuando termines."
+                                        }
+                                    }
+                                }
+                            } else {
+                                speechFrameCount = 0
+                            }
+                            if (!speechStarted && samples.size >= MAX_WAIT_FOR_SPEECH_SAMPLES) {
+                                throw IllegalStateException("No se detectó voz")
+                            }
+                        } else {
+                            speechSampleCount += frameSamples
+                            val silenceThreshold = max(
+                                MIN_SILENCE_RMS,
+                                minOf(noiseFloor, MAX_NOISE_REFERENCE_RMS) * END_NOISE_MULTIPLIER
+                            )
+                            if (frameRms < silenceThreshold) {
+                                trailingSilenceSamples += frameSamples
+                            } else {
+                                trailingSilenceSamples = 0
+                            }
+                            if (speechSampleCount >= MIN_SPEECH_SAMPLES &&
+                                trailingSilenceSamples >= END_SILENCE_SAMPLES
+                            ) {
+                                speechFinished = true
+                            }
+                        }
+                        frameStart = frameEnd
                     }
 
                     val now = System.currentTimeMillis()
-                    if (now - lastLevelUpdate >= 350 && windowSampleCount > 0) {
-                        val rms = sqrt(windowSquareSum / windowSampleCount)
-                        val levelPercent = (rms / 32768.0 * 100.0).toInt()
-                        val signalState = if (windowPeak < MIN_SIGNAL_PEAK) "muy bajo" else "recibido"
+                    if (now - lastLevelUpdate >= 400 && count > 0) {
+                        val levelPercent = (sqrt(squareSumForBuffer(buffer, count)) / 32768.0 * 100.0).toInt()
                         runOnUiThread {
-                            if (!isFinishing && !cancelRequested.get()) {
-                                statusView.text =
-                                    "Escuchando… señal $signalState ($levelPercent%). Toca Detener y transcribir."
+                            if (!isFinishing && !cancelRequested.get() && !speechFinished) {
+                                statusView.text = if (speechStarted) {
+                                    "Dictando… ${levelPercent}% de señal. Pausa para terminar."
+                                } else {
+                                    "Esperando voz… ${levelPercent}% de señal."
+                                }
                             }
                         }
                         lastLevelUpdate = now
-                        windowPeak = 0
-                        windowSquareSum = 0.0
-                        windowSampleCount = 0
                     }
                 }
                 if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
@@ -291,6 +351,7 @@ class VoiceCaptureActivity : Activity() {
                 activeRecorder = null
 
                 if (cancelRequested.get()) return@execute
+                if (!speechStarted) throw IllegalStateException("No se detectó voz")
                 if (samples.size < MIN_SAMPLES) {
                     throw IllegalStateException("Grabación demasiado corta")
                 }
@@ -317,11 +378,16 @@ class VoiceCaptureActivity : Activity() {
                     operationInProgress = false
                     if (isFinishing || cancelRequested.get()) return@runOnUiThread
                     if (transcript.isNotBlank()) {
-                        pendingTranscript = transcript
-                        statusView.text = "Whisper reconoció esto:\n\n$transcript\n\nRevísalo y toca Insertar texto."
-                        actionButton.text = "Insertar texto"
-                        actionButton.isEnabled = true
-                        actionButton.setOnClickListener { deliverTranscript() }
+                        statusView.text = "Transcripción lista. Insertando en el campo activo…\n\n$transcript"
+                        val receiver = resultReceiver
+                        if (receiver == null) {
+                            statusView.text = "No se pudo devolver la transcripción al teclado.\n\n$transcript"
+                        } else {
+                            receiver.send(RESULT_TRANSCRIPT, Bundle().apply {
+                                putString(EXTRA_TRANSCRIPT, transcript)
+                            })
+                            finish()
+                        }
                     } else {
                         statusView.text =
                             "Audio recibido (pico $peakAmplitude), pero no se reconocieron palabras. Acércate al micrófono y prueba otra vez."
@@ -354,6 +420,7 @@ class VoiceCaptureActivity : Activity() {
                         statusView.text = when (error.message) {
                             "Grabación demasiado corta" -> "La grabación fue muy corta. Habla al menos un segundo e inténtalo de nuevo."
                             "No se recibió audio del micrófono" -> "No está llegando audio. Revisa el permiso y el micrófono activo del teléfono."
+                            "No se detectó voz" -> "No detecté voz. Toca el micrófono y habla cuando aparezca Esperando voz."
                             else -> "Falló la grabación o la transcripción local. Inténtalo de nuevo."
                         }
                         actionButton.isEnabled = true
@@ -372,17 +439,13 @@ class VoiceCaptureActivity : Activity() {
         finish()
     }
 
-    private fun deliverTranscript() {
-        val transcript = pendingTranscript ?: return
-        val receiver = resultReceiver
-        if (receiver == null) {
-            statusView.text = "La transcripción quedó lista, pero no hay conexión con el teclado. Mantén esta pantalla abierta y vuelve a intentarlo."
-            return
+    private fun squareSumForBuffer(buffer: ShortArray, count: Int): Double {
+        var sum = 0.0
+        for (index in 0 until count) {
+            val sample = buffer[index].toDouble()
+            sum += sample * sample
         }
-        receiver.send(RESULT_TRANSCRIPT, Bundle().apply {
-            putString(EXTRA_TRANSCRIPT, transcript)
-        })
-        finish()
+        return sum / count.coerceAtLeast(1)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -414,13 +477,26 @@ class VoiceCaptureActivity : Activity() {
     companion object {
         const val EXTRA_RESULT_RECEIVER = "dev.flowy.keyboard.RESULT_RECEIVER"
         const val EXTRA_TRANSCRIPT = "dev.flowy.keyboard.TRANSCRIPT"
+        const val EXTRA_START_IMMEDIATELY = "dev.flowy.keyboard.START_IMMEDIATELY"
         const val RESULT_TRANSCRIPT = 10
         private const val REQUEST_AUDIO = 41
         private const val SAMPLE_RATE = 16_000
         private const val READ_BUFFER_SAMPLES = 4_096
+        private const val VAD_FRAME_SAMPLES = SAMPLE_RATE / 50
         private const val MAX_RECORDING_SECONDS = 30
         private const val MAX_SAMPLES = SAMPLE_RATE * MAX_RECORDING_SECONDS
+        private const val MAX_WAIT_FOR_SPEECH_SAMPLES = SAMPLE_RATE * 12
         private const val MIN_SAMPLES = SAMPLE_RATE / 2
+        private const val MIN_SPEECH_SAMPLES = SAMPLE_RATE * 3 / 10
+        private const val END_SILENCE_SAMPLES = SAMPLE_RATE
+        private const val REQUIRED_SPEECH_FRAMES = 3
+        private const val MIN_VOICE_RMS = 450.0
+        private const val MIN_SILENCE_RMS = 280.0
+        private const val INITIAL_NOISE_RMS = 100.0
+        private const val MAX_NOISE_REFERENCE_RMS = 700.0
+        private const val NOISE_FLOOR_SMOOTHING = 0.94
+        private const val START_NOISE_MULTIPLIER = 1.6
+        private const val END_NOISE_MULTIPLIER = 1.2
         private const val MIN_SIGNAL_PEAK = 80
         private const val MODEL_FILE_NAME = "whisper-tiny-q5_1-es.ggml"
         private const val MIN_MODEL_BYTES = 30L * 1024L * 1024L

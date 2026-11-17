@@ -25,6 +25,7 @@ class FlowyInputMethodService : InputMethodService() {
     private var lastSelectionStart = -1
     private var lastSelectionEnd = -1
     private var keyPreview: PopupWindow? = null
+    private var symbolPopup: PopupWindow? = null
     private var pendingTranscript: String? = null
     private var transcriptDeliveryId = 0
 
@@ -140,6 +141,7 @@ class FlowyInputMethodService : InputMethodService() {
                     }
                 }
             })
+            putExtra(VoiceCaptureActivity.EXTRA_START_IMMEDIATELY, true)
         }
         startActivity(intent)
     }
@@ -206,7 +208,7 @@ class FlowyInputMethodService : InputMethodService() {
         }
 
     private fun createKeyButton(label: String) = Button(this).apply {
-        val alternate = LONG_PRESS_ALTERNATES[label]
+        val alternates = LONG_PRESS_ALTERNATES[label].orEmpty()
         text = label
         textSize = if (label.length == 1) 19f else 14f
         isAllCaps = false
@@ -221,21 +223,21 @@ class FlowyInputMethodService : InputMethodService() {
         minHeight = dp(48)
         isFocusable = true
         stateListAnimator = null
-        contentDescription = if (alternate == null) label else "$label, mantén presionado para $alternate"
+        contentDescription = if (alternates.isEmpty()) label else "$label, mantén presionado para ver ${alternates.size} alternativas"
         setOnClickListener {
             if (label == "Clear all") clearAllText() else handleKey(label)
         }
-        isLongClickable = alternate != null
+        isLongClickable = alternates.isNotEmpty()
         setOnLongClickListener {
-            val symbol = alternate ?: return@setOnLongClickListener false
-            currentInputConnection?.commitText(symbol, 1)
+            if (alternates.isEmpty()) return@setOnLongClickListener false
+            showSymbolPopup(it, alternates)
             true
         }
         setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     performKeyHaptic(view)
-                    if (label.length == 1 && label != "⌫") showKeyPreview(view, label)
+                    if (label.length == 1) showKeyPreview(view, label)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dismissKeyPreview()
             }
@@ -267,12 +269,65 @@ class FlowyInputMethodService : InputMethodService() {
             isClippingEnabled = false
             elevation = dp(8).toFloat()
         }
-        val position = IntArray(2)
-        anchor.getLocationOnScreen(position)
-        val x = position[0] + anchor.width / 2 - dp(28)
-        val y = position[1] - dp(62)
-        popup.showAtLocation(window?.window?.decorView ?: anchor, Gravity.TOP or Gravity.LEFT, x, y)
+        popup.showAsDropDown(
+            anchor,
+            0,
+            -anchor.height - dp(62),
+            Gravity.CENTER_HORIZONTAL
+        )
         keyPreview = popup
+    }
+
+    private fun showSymbolPopup(anchor: View, symbols: List<String>) {
+        dismissKeyPreview()
+        dismissSymbolPopup()
+        val itemWidth = dp(44)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = getDrawable(R.drawable.symbol_popup_background)
+            elevation = dp(12).toFloat()
+        }
+        symbols.forEach { symbol ->
+            val option = TextView(this).apply {
+                text = symbol
+                textSize = 20f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                setTextColor(getColor(R.color.flowy_text))
+                background = getDrawable(R.drawable.key_background)
+                isFocusable = true
+                isFocusableInTouchMode = true
+                contentDescription = symbol
+                setOnClickListener {
+                    currentInputConnection?.commitText(symbol, 1)
+                    dismissSymbolPopup()
+                }
+            }
+            panel.addView(option, LinearLayout.LayoutParams(itemWidth, dp(48)).apply {
+                setMargins(dp(2), 0, dp(2), 0)
+            })
+        }
+        val popupWidth = (itemWidth + dp(4)) * symbols.size + dp(12)
+        symbolPopup = PopupWindow(panel, popupWidth, dp(60), false).apply {
+            isClippingEnabled = false
+            isOutsideTouchable = true
+            isFocusable = true
+            elevation = dp(12).toFloat()
+        }
+        symbolPopup?.showAsDropDown(
+            anchor,
+            0,
+            -anchor.height - dp(64),
+            Gravity.CENTER_HORIZONTAL
+        )
+        panel.getChildAt(0)?.requestFocus()
+    }
+
+    private fun dismissSymbolPopup() {
+        symbolPopup?.dismiss()
+        symbolPopup = null
     }
 
     private fun dismissKeyPreview() {
@@ -282,6 +337,7 @@ class FlowyInputMethodService : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         dismissKeyPreview()
+        dismissSymbolPopup()
         super.onFinishInputView(finishingInput)
     }
 
@@ -301,12 +357,21 @@ class FlowyInputMethodService : InputMethodService() {
 
     private companion object {
         val LONG_PRESS_ALTERNATES = mapOf(
-            "q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5",
-            "y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0",
-            "a" to "@", "s" to "#", "d" to "$", "f" to "%", "g" to "&",
-            "h" to "-", "j" to "+", "k" to "(", "l" to ")", "ñ" to "!",
-            "z" to "?", "x" to ":", "c" to ";", "v" to "/", "b" to "\"",
-            "n" to "'", "m" to "\\", "," to "<", "." to ">"
+            "q" to listOf("1", "!", "¡", "¿"), "w" to listOf("2", "@", "€"),
+            "e" to listOf("3", "é", "è", "ê", "ë"), "r" to listOf("4", "#", "£"),
+            "t" to listOf("5", "$", "¢"), "y" to listOf("6", "ü", "ÿ"),
+            "u" to listOf("7", "ú", "ù", "û", "ü"), "i" to listOf("8", "í", "ì", "î", "ï"),
+            "o" to listOf("9", "ó", "ò", "ô", "ö"), "p" to listOf("0", "°", "·"),
+            "a" to listOf("@", "á", "à", "â", "ä", "æ"), "s" to listOf("#", "ß", "§"),
+            "d" to listOf("$", "€", "£", "¥"), "f" to listOf("%", "‰", "ƒ"),
+            "g" to listOf("&", "§", "¢"), "h" to listOf("-", "_", "–", "—"),
+            "j" to listOf("+", "=", "±"), "k" to listOf("(", "[", "{"),
+            "l" to listOf(")", "]", "}"), "ñ" to listOf("!", "¡", "?", "¿"),
+            "z" to listOf("?", "¿", "~"), "x" to listOf(":", ";", "×"),
+            "c" to listOf(";", ":", "ç", "©"), "v" to listOf("/", "\\", "|"),
+            "b" to listOf("\"", "'", "“", "”"), "n" to listOf("'", "’", "‘", "´"),
+            "m" to listOf("\\", "~", "≈"), "," to listOf("<", "«", "≤"),
+            "." to listOf(">", "…", "≥", "?", "!")
         )
     }
 
