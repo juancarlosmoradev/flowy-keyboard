@@ -12,7 +12,7 @@ Build a remote-first Android input method that makes text entry and editing pred
 
 1. Preserve the text cursor position when the user enters editing with the D-pad.
 2. Provide an explicit one-step clear-all action. It clears the field, places the cursor at the start, and leaves the keyboard ready for new input. No confirmation.
-3. Provide a Spanish (Chile) QWERTY layout with ñ and basic punctuation. Long-press letters to show a selectable popup of their number, accent, and symbol alternatives. Show a key preview while a key is pressed.
+3. Provide a Spanish (Chile) QWERTY layout with ñ and basic punctuation. Long-press letters to show an in-keyboard palette of number, accent, and symbol alternatives without resetting focus. Show a centered key preview while a character is pressed; adapt at the screen edges and suppress the preview for delete.
 4. Provide opt-in Spanish voice dictation using a local Whisper model. Download the model once, verify its SHA-256 checksum, and process audio on the device. Never upload audio or fall back to cloud recognition.
 5. Explore an opt-in “Hey Flowy” voice agent that can open the keyboard, enter a query, and submit it. OS, device, privacy, battery, and background-microphone restrictions must be researched before implementation.
 
