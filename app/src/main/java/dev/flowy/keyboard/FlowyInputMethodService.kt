@@ -27,35 +27,20 @@ import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
-import android.view.textservice.SpellCheckerSession
-import android.view.textservice.SentenceSuggestionsInfo
-import android.view.textservice.SuggestionsInfo
-import android.view.textservice.TextInfo
-import android.view.textservice.TextServicesManager
 import java.util.Locale
 import kotlin.math.abs
 
-class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellCheckerSessionListener {
+class FlowyInputMethodService : InputMethodService() {
     private var lastSelectionStart = -1
     private var lastSelectionEnd = -1
     private var keyboardRoot: FrameLayout? = null
     private var keyPreviewPopup: PopupWindow? = null
     private var symbolPopup: PopupWindow? = null
     private var candidateView: LinearLayout? = null
-    private var spellCheckerSession: SpellCheckerSession? = null
-    private var pendingSpellWord: String? = null
     private var composingWord = ""
     private var pendingTranscript: String? = null
     private var transcriptDeliveryId = 0
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    override fun onCreate() {
-        super.onCreate()
-        spellCheckerSession = runCatching {
-            getSystemService(TextServicesManager::class.java)
-                ?.newSpellCheckerSession(null, Locale("es", "CL"), this, true)
-        }.getOrNull()
-    }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
@@ -63,68 +48,7 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             lastSelectionStart = -1
             lastSelectionEnd = -1
             composingWord = ""
-            pendingSpellWord = null
-            setCandidatesViewShown(false)
             showCandidates(emptyList())
-        }
-    }
-
-    override fun onCreateCandidatesView(): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(2), dp(8), dp(2))
-            minimumHeight = dp(40)
-            background = getDrawable(R.drawable.keyboard_background)
-            candidateView = this
-        }
-    }
-
-    override fun onGetSuggestions(results: Array<SuggestionsInfo>) {
-        val queriedWord = pendingSpellWord ?: return
-        val corrections = mutableListOf<String>()
-        results.forEach { info ->
-            for (index in 0 until info.suggestionsCount) {
-                info.getSuggestionAt(index)?.let(corrections::add)
-            }
-        }
-        mainHandler.post {
-            if (composingWord.equals(queriedWord, ignoreCase = true)) {
-                showCandidates(makeSuggestions(composingWord, corrections))
-            }
-        }
-    }
-
-    override fun onGetSentenceSuggestions(results: Array<SentenceSuggestionsInfo>) = Unit
-
-    override fun onDestroy() {
-        spellCheckerSession?.close()
-        spellCheckerSession = null
-        super.onDestroy()
-    }
-
-    private inner class FlowyKeyButton(context: Context) : Button(context) {
-        var centerIcon: Drawable? = null
-        var symbolHint: String = ""
-        private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFA4A8B0.toInt()
-            textAlign = Paint.Align.RIGHT
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            centerIcon?.let { icon ->
-                val size = dp(22)
-                val left = (width - size) / 2
-                val top = (height - size) / 2
-                icon.setBounds(left, top, left + size, top + size)
-                icon.draw(canvas)
-            }
-            if (symbolHint.isNotEmpty()) {
-                hintPaint.textSize = dp(8).toFloat()
-                canvas.drawText(symbolHint, width - dp(6).toFloat(), dp(11).toFloat(), hintPaint)
-            }
         }
     }
 
@@ -157,6 +81,31 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
         }
     }
 
+    private inner class FlowyKeyButton(context: Context) : Button(context) {
+        var centerIcon: Drawable? = null
+        var symbolHint: String = ""
+        private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFA4A8B0.toInt()
+            textAlign = Paint.Align.RIGHT
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            centerIcon?.let { icon ->
+                val size = dp(22)
+                val left = (width - size) / 2
+                val top = (height - size) / 2
+                icon.setBounds(left, top, left + size, top + size)
+                icon.draw(canvas)
+            }
+            if (symbolHint.isNotEmpty()) {
+                hintPaint.textSize = dp(8).toFloat()
+                canvas.drawText(symbolHint, width - dp(6).toFloat(), dp(11).toFloat(), hintPaint)
+            }
+        }
+    }
+
     override fun onCreateInputView(): View {
         val root = FrameLayout(this).apply {
             background = getDrawable(R.drawable.keyboard_background)
@@ -169,6 +118,16 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             gravity = Gravity.CENTER
             setPadding(dp(10), dp(9), dp(10), dp(10))
         }
+        val suggestions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), 0, dp(8), 0)
+            visibility = View.GONE
+            candidateView = this
+        }
+        keyboard.addView(suggestions, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(36)
+        ))
         val rows = listOf(
             listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
             listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -525,60 +484,54 @@ class FlowyInputMethodService : InputMethodService(), SpellCheckerSession.SpellC
             return
         }
         connection.setComposingText(word, 1)
-        pendingSpellWord = word
         showCandidates(makeSuggestions(word))
-        spellCheckerSession?.let { session ->
-            runCatching { session.getSuggestions(TextInfo(word), 5) }
-        }
     }
 
-    private fun makeSuggestions(word: String, corrections: List<String> = emptyList()): List<String> {
+    private fun makeSuggestions(word: String): List<String> {
         if (word.isBlank()) return emptyList()
         val prefix = word.lowercase(Locale("es", "CL"))
         val local = COMMON_WORDS.asSequence()
             .filter { it.startsWith(prefix) && !it.equals(prefix, ignoreCase = true) }
             .take(5)
             .toList()
-        return (listOf(word) + corrections + local)
+        return (listOf(word) + local)
             .distinctBy { it.lowercase(Locale.ROOT) }
             .take(3)
     }
 
     private fun showCandidates(words: List<String>) {
-        if (words.isEmpty()) {
-            setCandidatesViewShown(false)
-            candidateView?.removeAllViews()
-            return
-        }
-        setCandidatesViewShown(true)
         val strip = candidateView ?: return
         strip.removeAllViews()
+        if (words.isEmpty()) {
+            strip.visibility = View.GONE
+            keyboardRoot?.requestLayout()
+            return
+        }
+        strip.visibility = View.VISIBLE
         words.take(3).forEachIndexed { index, word ->
             val candidate = TextView(this).apply {
                 text = word
-                textSize = 15f
+                textSize = 14f
                 gravity = Gravity.CENTER
                 isSingleLine = true
                 setTextColor(getColor(if (index == 1) R.color.flowy_accent else R.color.flowy_text))
                 setOnClickListener { commitCandidate(word) }
             }
-            strip.addView(candidate, LinearLayout.LayoutParams(0, dp(38), 1f))
+            strip.addView(candidate, LinearLayout.LayoutParams(0, dp(34), 1f))
         }
-        setCandidatesViewShown(true)
+        keyboardRoot?.requestLayout()
     }
 
     private fun commitCandidate(word: String) {
         val connection = currentInputConnection ?: return
         connection.commitText("$word ", 1)
         composingWord = ""
-        pendingSpellWord = null
         showCandidates(emptyList())
     }
 
     private fun finishComposition() {
         if (composingWord.isNotEmpty()) currentInputConnection?.finishComposingText()
         composingWord = ""
-        pendingSpellWord = null
         showCandidates(emptyList())
     }
 
