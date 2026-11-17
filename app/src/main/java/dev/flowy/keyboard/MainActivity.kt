@@ -52,7 +52,7 @@ class MainActivity : Activity() {
             setTextColor(Color.rgb(245, 247, 255))
         })
         brandText.addView(TextView(this).apply {
-            text = "VOICE + KEYBOARD"
+            text = "KEYBOARD + VOICE"
             textSize = 10f
             letterSpacing = 0.10f
             setTextColor(Color.rgb(139, 151, 176))
@@ -65,7 +65,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(40), 0, dp(28))
         }
         hero.addView(TextView(this).apply {
-            text = "Escribe.\nSin fricción."
+            text = "Escribe.\\nSin fricción."
             textSize = 34f
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
             letterSpacing = -0.02f
